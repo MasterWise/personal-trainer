@@ -1,0 +1,19 @@
+{
+  "name": "Personal Trainer — Coach",
+  "short_name": "PT Coach",
+  "description": "Seu coach pessoal com IA — acompanhamento nutricional e de treinos",
+  "start_url": "/pt/",
+  "scope": "/pt/",
+  "display": "standalone",
+  "background_color": "#F7F2EC",
+  "theme_color": "#B87850",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/pt/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

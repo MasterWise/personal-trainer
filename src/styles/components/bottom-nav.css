@@ -1,0 +1,50 @@
+/* ── Bottom Navigation / Tab Bar ── */
+.pt-tabs {
+  background: var(--pt-color-surface);
+  border-top: 1px solid var(--pt-color-border);
+  display: flex;
+  flex-direction: row;
+  z-index: var(--pt-z-bottom-nav);
+  min-height: var(--pt-bottom-nav-height);
+  animation: slideUp var(--pt-transition-slow) ease;
+}
+
+.pt-tabs__item {
+  flex: 1;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 10px;
+  font-family: var(--pt-font-body);
+  color: var(--pt-color-text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2.5px solid transparent;
+  cursor: pointer;
+  transition: color var(--pt-transition-fast), border-color var(--pt-transition-fast);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pt-tabs__item:hover {
+  color: var(--pt-color-text-secondary);
+}
+
+.pt-tabs__item--active {
+  border-bottom-color: var(--pt-color-primary);
+  color: var(--pt-color-primary);
+  font-weight: 700;
+}
+
+.pt-tabs__icon {
+  font-size: var(--pt-fs-lg);
+  line-height: 1;
+}
+
+.pt-tabs__label {
+  line-height: 1.2;
+  white-space: nowrap;
+}

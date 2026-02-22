@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "personal-trainer",
+  "name": "Personal Trainer",
+  "type": "project",
+  "pidFile": "pt-server.pid",
+  "logFile": "pt-server.log",
+  "port": 3400,
+  "healthUrl": "http://127.0.0.1:3400/api/health",
+  "build": {
+    "command": "node",
+    "args": ["node_modules/vite/bin/vite.js", "build"]
+  },
+  "start": {
+    "command": "node",
+    "args": ["server.js"]
+  },
+  "dev": {
+    "command": "node",
+    "args": ["server.js"],
+    "env": { "NODE_ENV": "development" }
+  },
+  "stop": {
+    "gracefulTimeoutMs": 5000
+  },
+  "caddy": {
+    "routes": [
+      { "id": "pt-api", "path": "/api/pt*", "target": "http://localhost:3400/api", "stripPrefix": true, "enabled": true },
+      { "id": "pt-app", "path": "/pt*", "target": "http://localhost:3400", "stripPrefix": true, "enabled": true }
+    ]
+  }
+}

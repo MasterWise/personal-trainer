@@ -1,0 +1,20 @@
+.pt-app {
+  width: 100%;
+  height: 100vh;
+  max-width: var(--pt-app-max-width);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--pt-color-bg);
+  overflow: hidden;
+  font-family: var(--pt-font-body);
+  position: relative;
+}
+
+.pt-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}

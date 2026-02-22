@@ -1,0 +1,71 @@
+:root {
+  /* ── Layout ── */
+  --pt-app-max-width: 430px;
+  --pt-header-height: 56px;
+  --pt-bottom-nav-height: 64px;
+
+  /* ── Spacing (base 4px) ── */
+  --pt-space-1: 4px;
+  --pt-space-2: 8px;
+  --pt-space-3: 12px;
+  --pt-space-4: 16px;
+  --pt-space-5: 20px;
+  --pt-space-6: 24px;
+
+  /* ── Typography ── */
+  --pt-fs-2xs: 0.65rem;
+  --pt-fs-xs: 0.75rem;
+  --pt-fs-sm: 0.85rem;
+  --pt-fs-base: 1rem;
+  --pt-fs-lg: 1.25rem;
+  --pt-fs-xl: 1.5rem;
+  --pt-fs-2xl: 2rem;
+
+  /* ── Border Radius ── */
+  --pt-radius-sm: 8px;
+  --pt-radius-md: 12px;
+  --pt-radius-lg: 16px;
+  --pt-radius-xl: 18px;
+  --pt-radius-full: 9999px;
+
+  /* ── Z-Index ── */
+  --pt-z-base: 1;
+  --pt-z-dropdown: 100;
+  --pt-z-header: 100;
+  --pt-z-view: 50;
+  --pt-z-sticky: 200;
+  --pt-z-modal: 300;
+  --pt-z-bottom-nav: 1000;
+  --pt-z-tooltip: 1100;
+
+  /* ── Transitions ── */
+  --pt-transition-fast: 0.15s ease;
+  --pt-transition-default: 0.2s ease;
+  --pt-transition-slow: 0.3s ease;
+
+  /* ── Theme Colors (warm light - default) ── */
+  --pt-color-primary: #B87850;
+  --pt-color-primary-light: #D4956A;
+  --pt-color-primary-bg: #FDF5EE;
+
+  --pt-color-bg: #F7F2EC;
+  --pt-color-surface: #FFFFFF;
+
+  --pt-color-text: #2C1A0E;
+  --pt-color-text-secondary: #6B4C35;
+  --pt-color-text-muted: #9E7F68;
+
+  --pt-color-border: rgba(184, 120, 80, 0.18);
+  --pt-color-ok: #5A9A5A;
+  --pt-color-ok-bg: #EEF5EE;
+  --pt-color-danger: #C05A3A;
+
+  /* ── Shadows ── */
+  --pt-shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.06);
+  --pt-shadow-md: 0 2px 10px rgba(184, 120, 80, 0.2);
+  --pt-shadow-lg: 0 4px 16px rgba(184, 120, 80, 0.3);
+
+  /* ── Fonts ── */
+  --pt-font-body: 'DM Sans', sans-serif;
+  --pt-font-heading: 'Playfair Display', serif;
+}
