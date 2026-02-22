@@ -11,11 +11,11 @@ const RESPONSE_SCHEMA = {
         properties: {
           file: {
             type: "string",
-            enum: ["micro", "memoria", "historico", "plano", "marcos", "calorias", "treinos"],
+            enum: ["micro", "memoria", "historico", "plano", "progresso", "calorias", "treinos"],
           },
           action: {
             type: "string",
-            enum: ["append", "replace_all", "add_marco"],
+            enum: ["append", "replace_all", "add_progresso"],
           },
           content: { type: "string" },
           requiresPermission: { type: "boolean" },
@@ -30,11 +30,24 @@ const RESPONSE_SCHEMA = {
   additionalProperties: false,
 };
 
-export async function sendMessage(messages, systemPrompt, options = {}) {
+/**
+ * Send a message to Claude.
+ * @param {Array} messages - the user/assistant conversation history
+ * @param {string} systemInstructions - stable system instructions (goes in `system` field)
+ * @param {string} systemContext - dynamic user context (injected as first assistant prefill message)
+ * @param {Object} options - model, maxTokens, thinking config
+ */
+export async function sendMessage(messages, systemInstructions, systemContext, options = {}) {
+  // Inject the context as an assistant prefill before the real conversation.
+  // This follows Anthropic's recommendation: long data before instructions/queries.
+  const fullMessages = systemContext
+    ? [{ role: "assistant", content: systemContext }, ...messages]
+    : messages;
+
   const payload = {
     model: options.model || "claude-sonnet-4-6",
     max_tokens: options.maxTokens || 8000,
-    messages,
+    messages: fullMessages,
     output_config: {
       format: {
         type: "json_schema",
@@ -43,7 +56,7 @@ export async function sendMessage(messages, systemPrompt, options = {}) {
     },
   };
 
-  if (systemPrompt) payload.system = systemPrompt;
+  if (systemInstructions) payload.system = systemInstructions;
 
   if (options.thinking) {
     payload.thinking = {

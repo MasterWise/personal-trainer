@@ -1,18 +1,20 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "./contexts/AuthContext.jsx";
 import { useDocs } from "./contexts/DocsContext.jsx";
 import { useTheme } from "./contexts/ThemeContext.jsx";
 import { get, put, post, del } from "./services/api.js";
-import { buildPrompt } from "./data/prompts.js";
+import { buildSystemInstructions, buildSystemContext } from "./data/prompts.js";
 import { sendMessage } from "./services/claudeService.js";
-import { FILE_TO_STATE, MARCO_EMOJIS } from "./data/constants.js";
+import { FILE_TO_STATE, FILE_TO_TAB, PROGRESSO_EMOJIS } from "./data/constants.js";
 import Header from "./components/layout/Header.jsx";
 import TabBar from "./components/layout/TabBar.jsx";
 import ChatTab from "./components/chat/ChatTab.jsx";
 import ConvoDrawerReal from "./components/chat/ConvoDrawer.jsx";
 import PlanoView from "./views/PlanoView.jsx";
 import SaudeView from "./views/SaudeView.jsx";
-import MarcosView from "./views/MarcosView.jsx";
+import ProgressoView from "./views/ProgressoView.jsx";
+import HistView from "./views/HistView.jsx";
+import LogsView from "./views/LogsView.jsx";
 import PerfilTab from "./components/perfil/PerfilTab.jsx";
 import "./styles/components/app-shell.css";
 import "./styles/components/header.css";
@@ -108,12 +110,31 @@ function LoadingScreen() {
 ══════════════════════════════════════════════════════════════════════════ */
 export default function App() {
   const { isAuthenticated, isLoading, needsSetup } = useAuth();
-  const { docs, docsReady, setDocs, saveDoc } = useDocs();
+  const { docs, docsReady, setDocs, saveDoc, applyUpdate } = useDocs();
   const [activeTab, setActiveTab] = useState("chat");
   const [messages, setMessages] = useState([]);
   const [convos, setConvos] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [updateCards, setCards] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const prevMsgsLen = useRef(0);
+
+  useEffect(() => {
+    const len = messages.length;
+    if (len > prevMsgsLen.current) {
+      if (activeTab !== "chat" && messages[len - 1].role === "assistant") {
+        setUnreadCount(prev => prev + 1);
+      }
+    }
+    prevMsgsLen.current = len;
+  }, [messages, activeTab]);
+
+  useEffect(() => {
+    if (activeTab === "chat") {
+      setUnreadCount(0);
+    }
+  }, [activeTab]);
 
   // Load current conversation and archived convos on auth
   useEffect(() => {
@@ -192,9 +213,14 @@ export default function App() {
 
     try {
       const apiMsgs = newMsgs.slice(-40).map(m => ({ role: m.role, content: m.content }));
+      const today = new Date().toLocaleDateString("pt-BR");
+      const weekday = new Date().toLocaleDateString("pt-BR", { weekday: "long" });
+      let nomePerfil = "Renata";
+      try { nomePerfil = JSON.parse(docs.perfil || "{}").nome || "Renata"; } catch { /* ignore */ }
       const data = await sendMessage(
         apiMsgs,
-        buildPrompt(docs),
+        buildSystemInstructions(nomePerfil, today, weekday),
+        buildSystemContext(docs),
         { thinking: true, thinkingBudget: 5000 }
       );
       const textBlock = data.content?.find(b => b.type === "text")?.text;
@@ -202,11 +228,15 @@ export default function App() {
       const parsed = JSON.parse(textBlock);
 
       const aiMsg = { role: "assistant", content: parsed.reply || "..." };
-      let newDocs = docs;
+      const cards = [];
       for (const u of (parsed.updates || []).filter(u => !u.requiresPermission)) {
-        newDocs = await applyUpdateLocal(u, newDocs);
+        await applyUpdate(u);
+        const tab = FILE_TO_TAB[u.file];
+        if (["plano", "progresso", "historico"].includes(tab)) {
+          cards.push({ file: u.file, tab });
+        }
       }
-      setDocs(newDocs);
+      setCards(cards);
       setMessages(prev => [...prev, aiMsg]);
     } catch (e) {
       console.error("generatePlan:", e);
@@ -215,29 +245,6 @@ export default function App() {
     setGenerating(false);
   }
 
-  async function applyUpdateLocal(update, currentDocs) {
-    const stateKey = FILE_TO_STATE[update.file];
-    if (!stateKey) return currentDocs;
-    const nd = { ...currentDocs };
-    try {
-      if (update.file === "marcos" && update.action === "add_marco") {
-        const marco = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-        const arr = JSON.parse(currentDocs.marcos || "[]");
-        arr.push({ id: Date.now(), date: new Date().toLocaleDateString("pt-BR", { month: "short", year: "numeric" }), emoji: MARCO_EMOJIS[marco.type] || "🏆", ...marco });
-        nd.marcos = JSON.stringify(arr);
-        await saveDoc("marcos", nd.marcos);
-      } else if (update.action === "append") {
-        const val = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
-        nd[stateKey] = (currentDocs[stateKey] || "") + "\n\n" + val;
-        await saveDoc(stateKey, nd[stateKey]);
-      } else if (update.action === "replace_all") {
-        const val = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
-        nd[stateKey] = val;
-        await saveDoc(stateKey, val);
-      }
-    } catch (e) { console.error("applyUpdate:", e); }
-    return nd;
-  }
 
   async function handleToggleItem(itemId) {
     let planoObj;
@@ -339,20 +346,19 @@ export default function App() {
   if (!isAuthenticated) return <LoginForm />;
 
   const renderView = () => {
-    switch (activeTab) {
-      case "chat":
-        return <ChatTab docs={docs} setDocs={setDocs} messages={messages} setMessages={setMessages} docsReady={docsReady} setTab={setActiveTab} onGeneratePlan={generatePlan} generating={generating} />;
-      case "plano":
-        return <PlanoView plano={docs.plano} cal={docs.cal} onGeneratePlan={generatePlan} generating={generating} onToggleItem={handleToggleItem} />;
-      case "saude":
-        return <SaudeView cal={docs.cal} treinos={docs.treinos} />;
-      case "marcos":
-        return <MarcosView marcos={docs.marcos} />;
-      case "perfil":
-        return <PerfilTab perfil={docs.perfil} onSave={savePerfil} macro={docs.macro} micro={docs.micro} onSaveMacro={saveMacro} onSaveMicro={saveMicro} />;
-      default:
-        return null;
-    }
+    return (
+      <>
+        <div style={{ display: activeTab === "chat" ? "block" : "none", height: "100%", width: "100%" }}>
+          <ChatTab docs={docs} setDocs={setDocs} messages={messages} setMessages={setMessages} docsReady={docsReady} setTab={setActiveTab} onGeneratePlan={generatePlan} generating={generating} externalCards={updateCards} onClearExternalCards={() => setCards([])} />
+        </div>
+        {activeTab === "plano" && <PlanoView plano={docs.plano} cal={docs.cal} onGeneratePlan={generatePlan} generating={generating} onToggleItem={handleToggleItem} />}
+        {activeTab === "saude" && <SaudeView cal={docs.cal} treinos={docs.treinos} />}
+        {activeTab === "progresso" && <ProgressoView progresso={docs.progresso} />}
+        {activeTab === "historico" && <HistView hist={docs.hist} />}
+        {activeTab === "perfil" && <PerfilTab perfil={docs.perfil} onSave={savePerfil} macro={docs.macro} micro={docs.micro} onSaveMacro={saveMacro} onSaveMicro={saveMicro} />}
+        {activeTab === "logs" && <LogsView />}
+      </>
+    );
   };
 
   return (
@@ -361,7 +367,9 @@ export default function App() {
       <div className="pt-content">
         {renderView()}
       </div>
-      <TabBar tab={activeTab} setTab={setActiveTab} />
+      <TabBar tab={activeTab} setTab={setActiveTab} unreadCount={unreadCount} />
+      {/* ChatTab is always mounted to keep state alive during tab switches */}
+      {/* Cards from generatePlan are passed via updateCards prop */}
       {showHistory && (
         <div style={{ position: "fixed", inset: 0, zIndex: 200, maxWidth: "430px", margin: "0 auto", display: "flex", flexDirection: "column" }}>
           <ConvoDrawerReal convos={convos} onLoad={loadConvo} onDelete={deleteConvo} onClose={() => setShowHistory(false)} />

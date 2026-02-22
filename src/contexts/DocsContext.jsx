@@ -1,22 +1,22 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "./AuthContext.jsx";
 import { get, put, post } from "../services/api.js";
 
 const DocsContext = createContext(null);
 
-const DOC_KEYS = ["micro", "mem", "hist", "plano", "marcos", "cal", "treinos", "perfil", "macro"];
+const DOC_KEYS = ["micro", "mem", "hist", "plano", "progresso", "cal", "treinos", "perfil", "macro"];
 
 const FILE_TO_STATE = {
   micro: "micro",
   memoria: "mem",
   historico: "hist",
   plano: "plano",
-  marcos: "marcos",
+  progresso: "progresso",
   calorias: "cal",
   treinos: "treinos",
 };
 
-const MARCO_EMOJIS = {
+const PROGRESSO_EMOJIS = {
   "Conquista": "\u{1F3C6}",
   "Obst\u00e1culo superado": "\u{1F4AA}",
   "Mudan\u00e7a de fase": "\u{1F504}",
@@ -29,7 +29,7 @@ function emptyDocs() {
     mem: "",
     hist: "",
     plano: "",
-    marcos: "[]",
+    progresso: "[]",
     cal: "{}",
     treinos: "{}",
     perfil: "{}",
@@ -41,6 +41,9 @@ export function DocsProvider({ children }) {
   const { isAuthenticated } = useAuth();
   const [docs, setDocs] = useState(emptyDocs);
   const [docsReady, setDocsReady] = useState(false);
+  // Ref always mirrors latest docs — safe to read in async callbacks without stale closures
+  const docsRef = useRef(emptyDocs());
+  useEffect(() => { docsRef.current = docs; }, [docs]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -116,36 +119,35 @@ export function DocsProvider({ children }) {
     const stateKey = FILE_TO_STATE[update.file];
     if (!stateKey) return;
 
-    setDocs((prev) => {
-      const nd = { ...prev };
-      try {
-        if (update.file === "marcos" && update.action === "add_marco") {
-          const marco = typeof update.content === "string"
-            ? JSON.parse(update.content)
-            : update.content;
-          const arr = JSON.parse(prev.marcos || "[]");
-          arr.push({
-            id: Date.now(),
-            date: new Date().toLocaleDateString("pt-BR", { month: "short", year: "numeric" }),
-            emoji: MARCO_EMOJIS[marco.type] || "\u{1F3C6}",
-            ...marco,
-          });
-          nd.marcos = JSON.stringify(arr);
-          saveDoc("marcos", nd.marcos);
-        } else if (update.action === "append") {
-          const val = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
-          nd[stateKey] = (prev[stateKey] || "") + "\n\n" + val;
-          saveDoc(stateKey, nd[stateKey]);
-        } else if (update.action === "replace_all") {
-          const val = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
-          nd[stateKey] = val;
-          saveDoc(stateKey, val);
-        }
-      } catch (e) {
-        console.error("applyUpdate:", e);
+    // Read current docs from ref — always up-to-date, no stale closures
+    const prevDocs = docsRef.current;
+
+    try {
+      let newVal = "";
+      if (update.file === "progresso" && update.action === "add_progresso") {
+        const progresso = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
+        const arr = JSON.parse(prevDocs.progresso || "[]");
+        arr.push({
+          id: Date.now(),
+          date: new Date().toLocaleDateString("pt-BR", { month: "short", year: "numeric" }),
+          emoji: PROGRESSO_EMOJIS[progresso.type] || "\u{1F3C6}",
+          ...progresso,
+        });
+        newVal = JSON.stringify(arr);
+      } else if (update.action === "append") {
+        const val = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
+        newVal = (prevDocs[stateKey] || "") + "\n\n" + val;
+      } else if (update.action === "replace_all") {
+        newVal = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
       }
-      return nd;
-    });
+
+      if (newVal !== undefined && newVal !== "") {
+        await saveDoc(stateKey, newVal);
+        setDocs(current => ({ ...current, [stateKey]: newVal }));
+      }
+    } catch (e) {
+      console.error("applyUpdate error:", update.file, e);
+    }
   }, [saveDoc]);
 
   return (

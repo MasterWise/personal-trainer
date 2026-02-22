@@ -3,7 +3,7 @@ import { TAB_LABELS, TAB_ICONS, FILE_TO_TAB } from "../../data/constants.js";
 
 const DESCRIPTIONS = {
   plano: "Plano atualizado com a mudança solicitada.",
-  marcos: "Novo marco registrado na sua jornada.",
+  progresso: "Novo marco registrado na sua jornada.",
   historico: "Dado registrado no seu histórico.",
   micro: "Perfil atualizado com nova informação.",
   memoria: "Anotação registrada pelo coach.",

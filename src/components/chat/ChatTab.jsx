@@ -1,37 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import { useTheme } from "../../contexts/ThemeContext.jsx";
-import { FILE_TO_TAB, FILE_TO_STATE, MARCO_EMOJIS } from "../../data/constants.js";
-import { buildPrompt } from "../../data/prompts.js";
+import { FILE_TO_TAB, FILE_TO_STATE, PROGRESSO_EMOJIS } from "../../data/constants.js";
+import { buildSystemInstructions, buildSystemContext } from "../../data/prompts.js";
 import { sendMessage } from "../../services/claudeService.js";
 import ChatMsg from "./ChatMsg.jsx";
 import UpdateCard from "./UpdateCard.jsx";
 import PermCard from "./PermCard.jsx";
 
-async function applyUpdate(update, docs) {
-  const stateKey = FILE_TO_STATE[update.file];
-  if (!stateKey) return docs;
-  const nd = { ...docs };
-  try {
-    if (update.file === "marcos" && update.action === "add_marco") {
-      const marco = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-      const arr = JSON.parse(docs.marcos || "[]");
-      arr.push({ id: Date.now(), date: new Date().toLocaleDateString("pt-BR", { month: "short", year: "numeric" }), emoji: MARCO_EMOJIS[marco.type] || "🏆", ...marco });
-      nd.marcos = JSON.stringify(arr);
-      await window.storage.set("marcos", nd.marcos);
-    } else if (update.action === "append") {
-      const val = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
-      nd[stateKey] = (docs[stateKey] || "") + "\n\n" + val;
-      await window.storage.set(stateKey, nd[stateKey]);
-    } else if (update.action === "replace_all") {
-      const val = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
-      nd[stateKey] = val;
-      await window.storage.set(stateKey, val);
-    }
-  } catch (e) { console.error("applyUpdate:", e); }
-  return nd;
-}
+import { useDocs } from "../../contexts/DocsContext.jsx";
 
-export default function ChatTab({ docs, setDocs, messages, setMessages, docsReady, setTab, onGeneratePlan, generating }) {
+export default function ChatTab({ docs, setDocs, messages, setMessages, docsReady, setTab, onGeneratePlan, generating, externalCards, onClearExternalCards }) {
+  const { applyUpdate } = useDocs();
   const { theme } = useTheme();
   const c = theme.colors;
   const [input, setInput] = useState("");
@@ -41,23 +20,40 @@ export default function ChatTab({ docs, setDocs, messages, setMessages, docsRead
   const bottomRef = useRef(null);
   const taRef = useRef(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading, pendingPerms, updateCards]);
+  // Merge cards from generatePlan (App.jsx) into the updateCards display
+  useEffect(() => {
+    if (externalCards && externalCards.length > 0) {
+      setCards(prev => {
+        const existingFiles = new Set(prev.map(c => c.file));
+        const newCards = externalCards.filter(c => !existingFiles.has(c.file));
+        return newCards.length > 0 ? [...prev, ...newCards] : prev;
+      });
+      onClearExternalCards?.();
+    }
+  }, [externalCards]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading, generating, pendingPerms, updateCards]);
 
   async function send() {
     const text = input.trim();
     if (!text || loading || !docsReady) return;
     const userMsg = { role: "user", content: text };
-    const newMsgs = [...messages, userMsg];
-    setMessages(newMsgs);
+    setMessages(prev => [...prev, userMsg]);
     setInput("");
     setLoading(true);
     setCards([]);
 
     try {
-      const apiMsgs = newMsgs.slice(-40).map(m => ({ role: m.role, content: m.content }));
+      const currentMsgs = [...messages, userMsg];
+      const apiMsgs = currentMsgs.slice(-40).map(m => ({ role: m.role, content: m.content }));
+      const today = new Date().toLocaleDateString("pt-BR");
+      const weekday = new Date().toLocaleDateString("pt-BR", { weekday: "long" });
+      let nomePerfil = "Renata";
+      try { nomePerfil = JSON.parse(docs.perfil || "{}").nome || "Renata"; } catch { /* ignore */ }
       const data = await sendMessage(
         apiMsgs,
-        buildPrompt(docs),
+        buildSystemInstructions(nomePerfil, today, weekday),
+        buildSystemContext(docs),
         { thinking: true, thinkingBudget: 5000 }
       );
 
@@ -78,22 +74,19 @@ export default function ChatTab({ docs, setDocs, messages, setMessages, docsRead
       let newDocs = docs;
       const cards = [];
       for (const u of direct) {
-        newDocs = await applyUpdate(u, newDocs);
+        await applyUpdate(u);
         const tab = FILE_TO_TAB[u.file];
-        if (["plano", "marcos", "historico"].includes(tab)) {
+        if (["plano", "progresso", "historico"].includes(tab)) {
           cards.push({ file: u.file, tab });
         }
       }
-      setDocs(newDocs);
       setCards(cards);
 
       if (perms.length > 0) {
         setPPerms(prev => [...prev, ...perms.map(u => ({ id: Date.now() + Math.random(), update: u }))]);
       }
 
-      const finalMsgs = [...newMsgs, aiMsg];
-      setMessages(finalMsgs);
-      await window.storage.set("chat", JSON.stringify(finalMsgs.slice(-60)));
+      setMessages(prev => [...prev, aiMsg]);
     } catch (e) {
       console.error("send() exception:", e);
       setMessages(prev => [...prev, { role: "assistant", content: `⚠️ Erro: ${e?.message || String(e)}` }]);
@@ -106,17 +99,14 @@ export default function ChatTab({ docs, setDocs, messages, setMessages, docsRead
     if (!perm) return;
     setPPerms(prev => prev.filter(p => p.id !== permId));
     if (approved) {
-      const newDocs = await applyUpdate(perm.update, docs);
-      setDocs(newDocs);
+      await applyUpdate(perm.update);
       const tab = FILE_TO_TAB[perm.update.file];
-      if (["plano", "marcos", "historico"].includes(tab)) {
+      if (["plano", "progresso", "historico"].includes(tab)) {
         setCards(prev => [...prev, { file: perm.update.file, tab }]);
       }
     }
     const note = approved ? "✓ Perfil atualizado." : "Ok, mantive como estava.";
-    const noteMsgs = [...messages, { role: "assistant", content: note }];
-    setMessages(noteMsgs);
-    await window.storage.set("chat", JSON.stringify(noteMsgs.slice(-60)));
+    setMessages(prev => [...prev, { role: "assistant", content: note }]);
   }
 
   const quickActions = ["Como foi minha semana?", "Lanche da tarde ideal 🍎", "Estou na TPM 😩", "O que jantar hoje?"];
@@ -147,7 +137,7 @@ export default function ChatTab({ docs, setDocs, messages, setMessages, docsRead
 
         {messages.map((m, i) => <ChatMsg key={i} msg={m} />)}
 
-        {loading && (
+        {(loading || generating) && (
           <div className="pt-chat__row pt-chat__row--assistant">
             <div className="pt-chat__avatar">🌿</div>
             <div className="pt-chat__bubble pt-chat__bubble--assistant pt-chat__loading">
@@ -173,8 +163,8 @@ export default function ChatTab({ docs, setDocs, messages, setMessages, docsRead
           placeholder={docsReady ? "Escreva aqui... (Enter envia)" : "Carregando..."}
           disabled={!docsReady} rows={1}
           className="pt-chat__textarea" />
-        <button onClick={send} disabled={!input.trim() || loading || !docsReady}
-          className={`pt-chat__send ${input.trim() && !loading && docsReady ? "pt-chat__send--active" : ""}`}>
+        <button onClick={send} disabled={!input.trim() || (loading || generating) || !docsReady}
+          className={`pt-chat__send ${input.trim() && !(loading || generating) && docsReady ? "pt-chat__send--active" : ""}`}>
           ➤
         </button>
       </div>

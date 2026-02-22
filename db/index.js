@@ -112,6 +112,23 @@ const stmts = {
     "UPDATE conversations SET is_current = 0 WHERE user_id = ? AND is_current = 1"
   ),
   deleteConvo: db.prepare("DELETE FROM conversations WHERE id = ? AND user_id = ?"),
+
+  // AI Logs
+  insertAiLog: db.prepare(`
+    INSERT INTO ai_logs (
+      id, user_id, created_at,
+      system_prompt, system_prompt_length, messages_sent, messages_count,
+      model, thinking_enabled, thinking_budget,
+      response_raw, response_id, reply_text, updates_json, updates_count,
+      input_tokens, output_tokens, total_tokens, duration_ms,
+      success, error_message
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `),
+  listAiLogs: db.prepare(
+    "SELECT id, created_at, model, messages_count, updates_count, input_tokens, output_tokens, total_tokens, duration_ms, success, error_message, reply_text FROM ai_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
+  ),
+  getAiLog: db.prepare("SELECT * FROM ai_logs WHERE id = ? AND user_id = ?"),
+  deleteAiLogs: db.prepare("DELETE FROM ai_logs WHERE user_id = ?"),
 };
 
 export { db, stmts };

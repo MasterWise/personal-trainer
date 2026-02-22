@@ -41,7 +41,7 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
   function removeLimitacao(i) { set("limitacoes", (p.limitacoes || []).filter((_, j) => j !== i)); }
 
   function setTreino(i, key, val) { const arr = [...(p.treinos_planejados || [])]; arr[i] = { ...arr[i], [key]: val }; set("treinos_planejados", arr); }
-  function addTreino() { set("treinos_planejados", [...(p.treinos_planejados || []), { dia: "seg", tipo: "", duracao: "1h" }]); }
+  function addTreino() { set("treinos_planejados", [...(p.treinos_planejados || []), { dia: "seg", tipo: "", duracao: "1h", horario: "18:00" }]); }
   function removeTreino(i) { set("treinos_planejados", (p.treinos_planejados || []).filter((_, j) => j !== i)); }
 
   async function save() {
@@ -127,13 +127,20 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
         <div style={sectionStyle}>
           {secTitle("🏋️", "Treinos planejados")}
           {(p.treinos_planejados || []).map((t, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "80px 1fr 60px 34px", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
-              <select value={t.dia} onChange={e => setTreino(i, "dia", e.target.value)} style={inputStyle}>
-                {DIAS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
-              </select>
-              <input value={t.tipo} onChange={e => setTreino(i, "tipo", e.target.value)} placeholder="Ex: Pilates" style={inputStyle} />
-              <input value={t.duracao} onChange={e => setTreino(i, "duracao", e.target.value)} placeholder="1h" style={inputStyle} />
-              {btnRemove(() => removeTreino(i))}
+            <div key={i} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: "12px", padding: "10px 12px", marginBottom: "8px" }}>
+              {/* Row 1: Dia + Tipo */}
+              <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: "8px", marginBottom: "8px" }}>
+                <select value={t.dia} onChange={e => setTreino(i, "dia", e.target.value)} style={inputStyle}>
+                  {DIAS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
+                </select>
+                <input value={t.tipo} onChange={e => setTreino(i, "tipo", e.target.value)} placeholder="Ex: Pilates" style={inputStyle} />
+              </div>
+              {/* Row 2: Duração + Horário + Remove */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 34px", gap: "8px", alignItems: "center" }}>
+                <input value={t.duracao} onChange={e => setTreino(i, "duracao", e.target.value)} placeholder="Duração (ex: 1h)" style={inputStyle} />
+                <input value={t.horario || ""} onChange={e => setTreino(i, "horario", e.target.value)} type="time" style={inputStyle} />
+                {btnRemove(() => removeTreino(i))}
+              </div>
             </div>
           ))}
           {btnAdd(addTreino, "Adicionar treino")}
@@ -180,7 +187,7 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
               <div style={{ background: `${(c.danger || "#C05A3A")}10`, border: `1.5px solid ${c.danger || "#C05A3A"}40`, borderRadius: "14px", padding: "16px" }}>
                 <p style={{ fontFamily: theme.font, color: c.text, fontSize: "13px", fontWeight: "600", marginBottom: "6px" }}>Tem certeza?</p>
                 <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px", lineHeight: "1.5", marginBottom: "14px" }}>
-                  Todos os documentos, plano, histórico, marcos, calorias e treinos serão apagados.
+                  Todos os documentos, plano, histórico, progresso, calorias e treinos serão apagados.
                 </p>
                 <div style={{ display: "flex", gap: "8px" }}>
                   <button onClick={() => setConfirmClear(false)}
@@ -198,6 +205,30 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
           </div>
         </div>
 
+        {/* Debug AI */}
+        <div style={sectionStyle}>
+          {secTitle("🔍", "Debug da IA")}
+          <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px", marginBottom: "14px", lineHeight: "1.5" }}>
+            Quando ativado, cada interação com o Coach salva um log completo (prompt, mensagens, resposta, tokens, tempo). Acesse os logs na aba 🔍 Logs.
+          </p>
+          <button
+            onClick={() => {
+              const current = localStorage.getItem("debugAI") === "true";
+              localStorage.setItem("debugAI", current ? "false" : "true");
+              setP(prev => ({ ...prev })); // force re-render
+            }}
+            style={{
+              width: "100%", padding: "12px",
+              background: localStorage.getItem("debugAI") === "true" ? `${c.primary}18` : "transparent",
+              border: `1.5px solid ${localStorage.getItem("debugAI") === "true" ? c.primary : c.border}`,
+              borderRadius: "12px", fontFamily: theme.font, fontSize: "13px", fontWeight: "600",
+              color: localStorage.getItem("debugAI") === "true" ? c.primary : c.textMuted,
+              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+            }}
+          >
+            {localStorage.getItem("debugAI") === "true" ? "🟢 Debug ativado — clique para desativar" : "⚪ Debug desativado — clique para ativar"}
+          </button>
+        </div>
         {/* Documentos narrativos */}
         <div style={sectionStyle}>
           {secTitle("📄", "Documentos do coach")}

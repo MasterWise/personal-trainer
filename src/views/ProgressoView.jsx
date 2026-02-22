@@ -1,24 +1,24 @@
 import { useTheme } from "../contexts/ThemeContext.jsx";
 import { TYPE_COLORS } from "../data/constants.js";
 
-export default function MarcosView({ marcos }) {
+export default function ProgressoView({ progresso }) {
   const { theme } = useTheme();
   const c = theme.colors;
   let arr = [];
-  try { arr = JSON.parse(marcos || "[]"); } catch { /* ignore */ }
+  try { arr = JSON.parse(progresso || "[]"); } catch { /* ignore */ }
 
   return (
     <div style={{ overflowY: "auto", height: "100%", background: c.bg }}>
       <div style={{ padding: "14px 15px 28px" }}>
         <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "13px", marginBottom: "14px" }}>
           Conquistas e momentos da sua jornada.
-          <br /><span style={{ fontSize: "11px" }}>💡 O coach registra marcos automaticamente nas conversas.</span>
+          <br /><span style={{ fontSize: "11px" }}>💡 O coach registra seu progresso automaticamente nas conversas.</span>
         </p>
 
         {arr.length === 0 && (
           <div style={{ textAlign: "center", marginTop: "40px" }}>
             <div style={{ fontSize: "40px", marginBottom: "12px" }}>🌱</div>
-            <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "14px" }}>Ainda sem marcos. Sua jornada está apenas começando!</p>
+            <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "14px" }}>Ainda sem progresso registrado. Sua jornada está apenas começando!</p>
           </div>
         )}
 

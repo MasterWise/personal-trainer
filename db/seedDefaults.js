@@ -1,6 +1,6 @@
 import { stmts } from "./index.js";
 import {
-  INIT_MICRO, INIT_MEM, INIT_HIST, INIT_PLANO, INIT_MARCOS,
+  INIT_MICRO, INIT_MEM, INIT_HIST, INIT_PLANO, INIT_PROGRESSO,
   INIT_CAL, INIT_TREINOS, INIT_PERFIL, INIT_MACRO,
 } from "../src/data/constants.js";
 
@@ -12,7 +12,7 @@ export function seedUserDefaults(userId) {
     { key: "mem", content: INIT_MEM },
     { key: "hist", content: INIT_HIST },
     { key: "plano", content: INIT_PLANO },
-    { key: "marcos", content: INIT_MARCOS },
+    { key: "progresso", content: INIT_PROGRESSO },
     { key: "cal", content: INIT_CAL },
     { key: "treinos", content: INIT_TREINOS },
     { key: "perfil", content: INIT_PERFIL },
@@ -34,7 +34,7 @@ export function clearUserDocuments(userId) {
     { key: "mem", content: "" },
     { key: "hist", content: "" },
     { key: "plano", content: JSON.stringify({ date: "", meta: {}, grupos: [] }) },
-    { key: "marcos", content: "[]" },
+    { key: "progresso", content: "[]" },
     { key: "cal", content: JSON.stringify({ meta_diaria: { kcal: 1800, proteina_g: 100, carbo_g: 200, gordura_g: 60 }, dias: {} }) },
     { key: "treinos", content: JSON.stringify({ planejados: {}, registros: [] }) },
     { key: "perfil", content: "{}" },

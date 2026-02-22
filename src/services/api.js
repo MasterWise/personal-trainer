@@ -6,6 +6,7 @@ function buildHeaders() {
   const headers = { "Content-Type": "application/json" };
   const token = getAuthToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (localStorage.getItem("debugAI") === "true") headers["x-debug-log"] = "true";
   return headers;
 }
 

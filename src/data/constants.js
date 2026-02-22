@@ -210,7 +210,7 @@ export const INIT_PLANO = JSON.stringify({
   ],
 });
 
-export const INIT_MARCOS = JSON.stringify([{
+export const INIT_PROGRESSO = JSON.stringify([{
   id: 1, date: "Fev 2026", title: "Início do acompanhamento estruturado",
   type: "Mudança de fase", emoji: "🚀",
   context: "Renata veio de 65,4 → 60,5 kg por conta própria. Inicia acompanhamento integrado.",
@@ -274,7 +274,7 @@ export const INIT_CAL = JSON.stringify({
 });
 
 export const INIT_TREINOS = JSON.stringify({
-  planejados: { seg: "Pilates 1h", ter: "Poledance 1h", qua: "Pilates 1h", sex: "Poledance 1h" },
+  planejados: { seg: "Pilates 1h (07:00)", ter: "Poledance 1h (19:00)", qua: "Pilates 1h (07:00)", sex: "Poledance 1h (19:00)" },
   registros: [],
 });
 
@@ -302,10 +302,10 @@ export const INIT_PERFIL = JSON.stringify({
     "Sonolência e indisposição pós-almoço",
   ],
   treinos_planejados: [
-    { dia: "seg", tipo: "Pilates", duracao: "1h" },
-    { dia: "ter", tipo: "Poledance", duracao: "1h" },
-    { dia: "qua", tipo: "Pilates", duracao: "1h" },
-    { dia: "sex", tipo: "Poledance", duracao: "1h" },
+    { dia: "seg", tipo: "Pilates", duracao: "1h", horario: "07:00" },
+    { dia: "ter", tipo: "Poledance", duracao: "1h", horario: "19:00" },
+    { dia: "qua", tipo: "Pilates", duracao: "1h", horario: "07:00" },
+    { dia: "sex", tipo: "Poledance", duracao: "1h", horario: "19:00" },
   ],
   habitos: [
     "Café: máximo 2 canecas por dia (enjoo se passar)",
@@ -341,30 +341,30 @@ export const DEFAULTS = {
   mem: INIT_MEM,
   hist: INIT_HIST,
   plano: INIT_PLANO,
-  marcos: INIT_MARCOS,
+  progresso: INIT_PROGRESSO,
 };
 
 export const TAB_LABELS = {
-  plano: "Plano", marcos: "Marcos", historico: "Histórico",
+  plano: "Plano", progresso: "Progresso", historico: "Histórico",
   micro: "Perfil", memoria: "Anotações", calorias: "Saúde", treinos: "Saúde",
 };
 
 export const TAB_ICONS = {
-  plano: "📋", marcos: "🏆", historico: "📊",
+  plano: "📋", progresso: "🏆", historico: "📊",
   micro: "👤", memoria: "📝", calorias: "🍎", treinos: "🏋️",
 };
 
 export const FILE_TO_TAB = {
-  plano: "plano", marcos: "marcos", historico: "historico",
+  plano: "plano", progresso: "progresso", historico: "historico",
   micro: "plano", memoria: "plano", calorias: "saude", treinos: "saude",
 };
 
 export const FILE_TO_STATE = {
   micro: "micro", memoria: "mem", historico: "hist",
-  plano: "plano", marcos: "marcos", calorias: "cal", treinos: "treinos",
+  plano: "plano", progresso: "progresso", calorias: "cal", treinos: "treinos",
 };
 
-export const MARCO_EMOJIS = {
+export const PROGRESSO_EMOJIS = {
   Conquista: "🏆",
   "Obstáculo superado": "💪",
   "Mudança de fase": "🔄",
@@ -382,7 +382,8 @@ export const TABS = [
   { id: "chat", label: "Chat", icon: "💬" },
   { id: "plano", label: "Plano", icon: "📋" },
   { id: "saude", label: "Saúde", icon: "🍎" },
-  { id: "marcos", label: "Marcos", icon: "🏆" },
+  { id: "progresso", label: "Progresso", icon: "🏆" },
+  { id: "historico", label: "Histórico", icon: "📊" },
   { id: "perfil", label: "Perfil", icon: "⚙️" },
 ];
 
