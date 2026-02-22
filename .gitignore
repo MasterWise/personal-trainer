@@ -22,7 +22,7 @@ Thumbs.db
 dist/
 coverage/
 
-data/
+/data/
 
 worktrees/*
 !worktrees/.gitkeep
