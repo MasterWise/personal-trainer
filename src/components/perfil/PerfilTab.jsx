@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTheme } from "../../contexts/ThemeContext.jsx";
 import { useDocs } from "../../contexts/DocsContext.jsx";
 import { DIAS } from "../../data/constants.js";
@@ -9,7 +9,6 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
   const c = theme.colors;
   const { clearDocs, restoreDocs } = useDocs();
   const [p, setP] = useState({});
-  const [saved, setSaved] = useState(false);
   const [modal, setModal] = useState(null);
   const [modalText, setModalText] = useState("");
   const [modalSaved, setModalSaved] = useState(false);
@@ -44,11 +43,27 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
   function addTreino() { set("treinos_planejados", [...(p.treinos_planejados || []), { dia: "seg", tipo: "", duracao: "1h", horario: "18:00" }]); }
   function removeTreino(i) { set("treinos_planejados", (p.treinos_planejados || []).filter((_, j) => j !== i)); }
 
-  async function save() {
-    await onSave(JSON.stringify(p, null, 2));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
+  // Auto-save with debounce — skip the initial load
+  const isFirstRender = useRef(true);
+  const [autoSaveStatus, setAutoSaveStatus] = useState(""); // "" | "saving" | "saved"
+
+  useEffect(() => {
+    // Skip auto-save on first render (when perfil prop loads into p)
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    // Skip if p is empty (no data loaded yet)
+    if (!p || Object.keys(p).length === 0) return;
+
+    setAutoSaveStatus("saving");
+    const timer = setTimeout(async () => {
+      await onSave(JSON.stringify(p, null, 2));
+      setAutoSaveStatus("saved");
+      setTimeout(() => setAutoSaveStatus(""), 1500);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [p]);
 
   const sectionStyle = { background: c.surface, borderRadius: "16px", padding: "18px", marginBottom: "12px", border: `1px solid ${c.border}`, boxShadow: "0 1px 6px rgba(0,0,0,0.05)" };
   const secTitle = (icon, title) => (
@@ -127,20 +142,16 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
         <div style={sectionStyle}>
           {secTitle("🏋️", "Treinos planejados")}
           {(p.treinos_planejados || []).map((t, i) => (
-            <div key={i} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: "12px", padding: "10px 12px", marginBottom: "8px" }}>
-              {/* Row 1: Dia + Tipo */}
-              <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: "8px", marginBottom: "8px" }}>
-                <select value={t.dia} onChange={e => setTreino(i, "dia", e.target.value)} style={inputStyle}>
-                  {DIAS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
-                </select>
-                <input value={t.tipo} onChange={e => setTreino(i, "tipo", e.target.value)} placeholder="Ex: Pilates" style={inputStyle} />
-              </div>
-              {/* Row 2: Duração + Horário + Remove */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 34px", gap: "8px", alignItems: "center" }}>
-                <input value={t.duracao} onChange={e => setTreino(i, "duracao", e.target.value)} placeholder="Duração (ex: 1h)" style={inputStyle} />
-                <input value={t.horario || ""} onChange={e => setTreino(i, "horario", e.target.value)} type="time" style={inputStyle} />
-                {btnRemove(() => removeTreino(i))}
-              </div>
+            <div key={i} style={{ display: "flex", gap: "5px", marginBottom: "8px", alignItems: "center" }}>
+              <select value={t.dia} onChange={e => setTreino(i, "dia", e.target.value)} style={{ ...inputStyle, padding: "8px 4px", fontSize: "12px", width: "62px", flexShrink: 0 }}>
+                {DIAS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
+              </select>
+              <input value={t.tipo} onChange={e => setTreino(i, "tipo", e.target.value)} placeholder="Pilates" style={{ ...inputStyle, padding: "8px 6px", flex: 1, minWidth: 0 }} />
+              <select value={t.duracao} onChange={e => setTreino(i, "duracao", e.target.value)} style={{ ...inputStyle, padding: "8px 2px", fontSize: "12px", width: "60px", flexShrink: 0 }}>
+                {["30min", "45min", "1h", "1h15", "1h30", "2h"].map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <input value={t.horario || ""} onChange={e => setTreino(i, "horario", e.target.value)} type="time" style={{ ...inputStyle, padding: "8px 4px", fontSize: "12px", width: "80px", flexShrink: 0 }} />
+              {btnRemove(() => removeTreino(i))}
             </div>
           ))}
           {btnAdd(addTreino, "Adicionar treino")}
@@ -252,13 +263,19 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
         </div>
       </div>
 
-      {/* Floating save button */}
-      <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: "430px", padding: "12px 16px", background: `${c.surface}ee`, backdropFilter: "blur(8px)", borderTop: `1px solid ${c.border}`, zIndex: 50 }}>
-        <button onClick={save}
-          style={{ width: "100%", padding: "14px", background: saved ? c.ok : `linear-gradient(135deg,${c.primaryLight},${c.primary})`, color: "#FFF", border: "none", borderRadius: "14px", fontFamily: theme.font, fontSize: "15px", fontWeight: "700", cursor: "pointer", transition: "background 0.3s", boxShadow: `0 4px 14px ${c.primary}40` }}>
-          {saved ? "✓ Salvo!" : "Salvar perfil"}
-        </button>
-      </div>
+      {/* Auto-save status indicator */}
+      {autoSaveStatus && (
+        <div style={{
+          position: "fixed", bottom: "70px", left: "50%", transform: "translateX(-50%)",
+          padding: "8px 18px", borderRadius: "20px",
+          background: autoSaveStatus === "saved" ? "#5A9A5Acc" : `${c.primary}cc`,
+          color: "#FFF", fontFamily: theme.font, fontSize: "12px", fontWeight: "700",
+          backdropFilter: "blur(6px)", boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
+          zIndex: 50, transition: "all 0.3s", pointerEvents: "none",
+        }}>
+          {autoSaveStatus === "saving" ? "💾 Salvando..." : "✓ Salvo"}
+        </div>
+      )}
 
       {/* Modal editor */}
       {modal && (

@@ -117,10 +117,11 @@ export function DocsProvider({ children }) {
 
   const applyUpdate = useCallback(async (update) => {
     const stateKey = FILE_TO_STATE[update.file];
-    if (!stateKey) return;
+    if (!stateKey) return null;
 
-    // Read current docs from ref — always up-to-date, no stale closures
+    // Capture the "before" state for revision ledger
     const prevDocs = docsRef.current;
+    const before = prevDocs[stateKey] || "";
 
     try {
       let newVal = "";
@@ -144,10 +145,12 @@ export function DocsProvider({ children }) {
       if (newVal !== undefined && newVal !== "") {
         await saveDoc(stateKey, newVal);
         setDocs(current => ({ ...current, [stateKey]: newVal }));
+        return { file: update.file, action: update.action, before, after: newVal };
       }
     } catch (e) {
       console.error("applyUpdate error:", update.file, e);
     }
+    return null;
   }, [saveDoc]);
 
   return (

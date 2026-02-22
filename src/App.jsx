@@ -5,7 +5,7 @@ import { useTheme } from "./contexts/ThemeContext.jsx";
 import { get, put, post, del } from "./services/api.js";
 import { buildSystemInstructions, buildSystemContext } from "./data/prompts.js";
 import { sendMessage } from "./services/claudeService.js";
-import { FILE_TO_STATE, FILE_TO_TAB, PROGRESSO_EMOJIS } from "./data/constants.js";
+import { FILE_TO_STATE, PROGRESSO_EMOJIS } from "./data/constants.js";
 import Header from "./components/layout/Header.jsx";
 import TabBar from "./components/layout/TabBar.jsx";
 import ChatTab from "./components/chat/ChatTab.jsx";
@@ -13,7 +13,7 @@ import ConvoDrawerReal from "./components/chat/ConvoDrawer.jsx";
 import PlanoView from "./views/PlanoView.jsx";
 import SaudeView from "./views/SaudeView.jsx";
 import ProgressoView from "./views/ProgressoView.jsx";
-import HistView from "./views/HistView.jsx";
+import CadernoView from "./views/CadernoView.jsx";
 import LogsView from "./views/LogsView.jsx";
 import PerfilTab from "./components/perfil/PerfilTab.jsx";
 import "./styles/components/app-shell.css";
@@ -116,7 +116,6 @@ export default function App() {
   const [convos, setConvos] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [updateCards, setCards] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const prevMsgsLen = useRef(0);
 
@@ -227,16 +226,12 @@ export default function App() {
       if (!textBlock) throw new Error("Resposta inesperada da API");
       const parsed = JSON.parse(textBlock);
 
-      const aiMsg = { role: "assistant", content: parsed.reply || "..." };
-      const cards = [];
+      const appliedUpdates = [];
       for (const u of (parsed.updates || []).filter(u => !u.requiresPermission)) {
-        await applyUpdate(u);
-        const tab = FILE_TO_TAB[u.file];
-        if (["plano", "progresso", "historico"].includes(tab)) {
-          cards.push({ file: u.file, tab });
-        }
+        const revision = await applyUpdate(u);
+        if (revision) appliedUpdates.push(revision);
       }
-      setCards(cards);
+      const aiMsg = { role: "assistant", content: parsed.reply || "...", appliedUpdates };
       setMessages(prev => [...prev, aiMsg]);
     } catch (e) {
       console.error("generatePlan:", e);
@@ -349,12 +344,12 @@ export default function App() {
     return (
       <>
         <div style={{ display: activeTab === "chat" ? "block" : "none", height: "100%", width: "100%" }}>
-          <ChatTab docs={docs} setDocs={setDocs} messages={messages} setMessages={setMessages} docsReady={docsReady} setTab={setActiveTab} onGeneratePlan={generatePlan} generating={generating} externalCards={updateCards} onClearExternalCards={() => setCards([])} />
+          <ChatTab docs={docs} setDocs={setDocs} messages={messages} setMessages={setMessages} docsReady={docsReady} setTab={setActiveTab} onGeneratePlan={generatePlan} generating={generating} />
         </div>
         {activeTab === "plano" && <PlanoView plano={docs.plano} cal={docs.cal} onGeneratePlan={generatePlan} generating={generating} onToggleItem={handleToggleItem} />}
         {activeTab === "saude" && <SaudeView cal={docs.cal} treinos={docs.treinos} />}
         {activeTab === "progresso" && <ProgressoView progresso={docs.progresso} />}
-        {activeTab === "historico" && <HistView hist={docs.hist} />}
+        {activeTab === "caderno" && <CadernoView hist={docs.hist} mem={docs.mem} macro={docs.macro} micro={docs.micro} />}
         {activeTab === "perfil" && <PerfilTab perfil={docs.perfil} onSave={savePerfil} macro={docs.macro} micro={docs.micro} onSaveMacro={saveMacro} onSaveMicro={saveMicro} />}
         {activeTab === "logs" && <LogsView />}
       </>
@@ -368,8 +363,6 @@ export default function App() {
         {renderView()}
       </div>
       <TabBar tab={activeTab} setTab={setActiveTab} unreadCount={unreadCount} />
-      {/* ChatTab is always mounted to keep state alive during tab switches */}
-      {/* Cards from generatePlan are passed via updateCards prop */}
       {showHistory && (
         <div style={{ position: "fixed", inset: 0, zIndex: 200, maxWidth: "430px", margin: "0 auto", display: "flex", flexDirection: "column" }}>
           <ConvoDrawerReal convos={convos} onLoad={loadConvo} onDelete={deleteConvo} onClose={() => setShowHistory(false)} />

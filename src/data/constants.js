@@ -355,8 +355,8 @@ export const TAB_ICONS = {
 };
 
 export const FILE_TO_TAB = {
-  plano: "plano", progresso: "progresso", historico: "historico",
-  micro: "plano", memoria: "plano", calorias: "saude", treinos: "saude",
+  plano: "plano", progresso: "progresso", historico: "caderno",
+  micro: "caderno", memoria: "caderno", calorias: "saude", treinos: "saude",
 };
 
 export const FILE_TO_STATE = {
@@ -383,7 +383,7 @@ export const TABS = [
   { id: "plano", label: "Plano", icon: "📋" },
   { id: "saude", label: "Saúde", icon: "🍎" },
   { id: "progresso", label: "Progresso", icon: "🏆" },
-  { id: "historico", label: "Histórico", icon: "📊" },
+  { id: "caderno", label: "Caderno", icon: "📓" },
   { id: "perfil", label: "Perfil", icon: "⚙️" },
 ];
 
