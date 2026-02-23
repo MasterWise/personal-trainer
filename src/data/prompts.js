@@ -132,7 +132,7 @@ EXEMPLOS DE UPDATES CORRETOS:
 - MICRO (com permissão): {"file":"micro","action":"replace_all","content":"[Texto atualizado...]","requiresPermission":true,"permissionMessage":"Posso adicionar isso ao seu perfil?"}
 
 FORMATO JSON DO PLANO (content serializado como string):
-{"date":"[DATA]","meta":{"kcal":1450,"proteina_g":115,"carbo_g":110,"gordura_g":45},"grupos":[{"nome":"Treino (07h)","emoji":"🏋️","itens":[{"id":"t1","tipo":"treino","texto":"Pilates 1h","checked":false,"treino_tipo":"Pilates","duracao_min":60}]}]}
+{"date":"[DATA]","meta":{"kcal":1450,"proteina_g":115,"carbo_g":110,"gordura_g":45,"fibra_g":25},"grupos":[{"nome":"Treino (07h)","emoji":"🏋️","itens":[{"id":"t1","tipo":"treino","texto":"Pilates 1h","checked":false,"treino_tipo":"Pilates","duracao_min":60}]}]}
 Regras: ids únicos curtos (m1, t1, j1). Alimentos: campo "nutri" com kcal/macros OBRIGATÓRIO. Treinos: "treino_tipo" e "duracao_min" OBRIGATÓRIOS.
 
 Se não houver interação clara, retorne: {"reply": "...", "updates": []}
@@ -158,10 +158,10 @@ export function buildSystemContext(docs) {
   try { treinosObj = JSON.parse(docs.treinos || "{}"); } catch { /* ignore */ }
 
   const todayCal = calObj.dias?.[today] || null;
-  const metaDiaria = calObj.meta_diaria || { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45 };
+  const metaDiaria = calObj.meta_diaria || { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 };
 
   const calCtx = todayCal
-    ? `Hoje (${today}): ${todayCal.kcal_consumido || 0}kcal consumidas de ${metaDiaria.kcal}kcal meta | Proteína: ${todayCal.proteina_g || 0}g/${metaDiaria.proteina_g}g | Carbo: ${todayCal.carbo_g || 0}g/${metaDiaria.carbo_g}g | Gordura: ${todayCal.gordura_g || 0}g/${metaDiaria.gordura_g}g
+    ? `Hoje (${today}): ${todayCal.kcal_consumido || 0}kcal consumidas de ${metaDiaria.kcal}kcal meta | Proteína: ${todayCal.proteina_g || 0}g/${metaDiaria.proteina_g}g | Carbo: ${todayCal.carbo_g || 0}g/${metaDiaria.carbo_g}g | Gordura: ${todayCal.gordura_g || 0}g/${metaDiaria.gordura_g}g | Fibras: ${todayCal.fibra_g || 0}g/${metaDiaria.fibra_g}g
 Refeições hoje: ${(todayCal.refeicoes || []).join("; ") || "nenhuma registrada"}`
     : `Hoje (${today}): nenhum dado calórico registrado ainda.`;
 
@@ -200,7 +200,7 @@ Refeições hoje: ${(todayCal.refeicoes || []).join("; ") || "nenhuma registrada
 - **Água mínima:** ≥${p.agua_litros || 2}L/dia
 
 ## Meta Nutricional Diária
-- **Calorias:** ${metaDiaria.kcal}kcal | **Proteína:** ${metaDiaria.proteina_g}g | **Carbo:** ${metaDiaria.carbo_g}g | **Gordura:** ${metaDiaria.gordura_g}g
+- **Calorias:** ${metaDiaria.kcal}kcal | **Proteína:** ${metaDiaria.proteina_g}g | **Carbo:** ${metaDiaria.carbo_g}g | **Gordura:** ${metaDiaria.gordura_g}g | **Fibras:** ${metaDiaria.fibra_g}g
 
 ## Limitações Físicas e Restrições
 ${(p.limitacoes || []).map(l => `- ${l}`).join("\n") || "- nenhuma registrada"}

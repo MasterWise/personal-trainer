@@ -19,14 +19,14 @@ const DOCS = [
   },
   {
     key: "macro",
-    title: "Visão Geral",
+    title: "Visão",
     emoji: "🎯",
     subtitle: "Estratégia de longo prazo e metas",
     emptyMsg: "A visão geral ainda está em branco. Peça ao coach para traçar sua estratégia!",
   },
   {
     key: "micro",
-    title: "Perfil Íntimo",
+    title: "Perfil",
     emoji: "👤",
     subtitle: "Preferências, rotina e comportamento",
     emptyMsg: "O coach ainda não registrou seu perfil detalhado. Converse mais para ele te conhecer!",
@@ -59,24 +59,39 @@ export default function CadernoView({ hist, mem, macro, micro }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: c.bg }}>
-      {/* Sticky header with tabs */}
+      {/* Sticky header with padded segmented control */}
       <div style={{
         background: c.surface, borderBottom: `1px solid ${c.border}`,
-        padding: "12px 16px 0", flexShrink: 0,
+        padding: "16px 16px 12px", flexShrink: 0,
+        boxShadow: "0 2px 10px rgba(0,0,0,0.02)",
       }}>
-        {/* Title row */}
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-          <span style={{ fontSize: "18px" }}>📓</span>
-          <h2 style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "16px", fontWeight: "700", margin: 0 }}>
-            Caderno do Coach
-          </h2>
+        {/* Title and fixed description with unified premium look */}
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+          <div style={{
+            background: `linear-gradient(135deg, ${c.primaryLight}30, ${c.primary}20)`,
+            width: "38px", height: "38px", borderRadius: "10px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "18px", flexShrink: 0, border: `1px solid ${c.primary}20`
+          }}>
+            📓
+          </div>
+          <div>
+            <h2 style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "17px", fontWeight: "700", margin: 0, letterSpacing: "-0.01em" }}>
+              Caderno do Coach
+            </h2>
+            <p style={{
+              fontFamily: theme.font, color: c.textMuted, fontSize: "11.5px",
+              margin: "2px 0 0", lineHeight: "1.3",
+            }}>
+              {active.subtitle}
+            </p>
+          </div>
         </div>
 
-        {/* Tab bar */}
+        {/* Tab bar — iOS-style Segmented Control */}
         <div style={{
-          display: "flex", gap: "2px",
-          overflowX: "auto", WebkitOverflowScrolling: "touch",
-          scrollbarWidth: "none", msOverflowStyle: "none",
+          display: "flex", background: c.bg, borderRadius: "12px", padding: "4px",
+          border: `1px solid ${c.border}`
         }}>
           {DOCS.map(doc => {
             const isActive = doc.key === activeDoc;
@@ -86,22 +101,21 @@ export default function CadernoView({ hist, mem, macro, micro }) {
                 key={doc.key}
                 onClick={() => setActiveDoc(doc.key)}
                 style={{
-                  padding: "8px 12px", border: "none", cursor: "pointer",
-                  background: "transparent",
-                  borderBottom: isActive ? `2.5px solid ${c.primary}` : "2.5px solid transparent",
-                  fontFamily: theme.font, fontSize: "12.5px", fontWeight: isActive ? "700" : "500",
+                  flex: 1, padding: "7px 2px", border: "none", cursor: "pointer",
+                  background: isActive ? c.surface : "transparent",
+                  borderRadius: "8px",
+                  boxShadow: isActive ? "0 2px 6px rgba(0,0,0,0.05)" : "none",
+                  fontFamily: theme.font, fontSize: "11.5px", fontWeight: isActive ? "700" : "600",
                   color: isActive ? c.primary : c.textMuted,
                   whiteSpace: "nowrap", transition: "all 0.2s",
-                  display: "flex", alignItems: "center", gap: "4px",
-                  flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: "4px",
                 }}
               >
-                <span style={{ fontSize: "13px" }}>{doc.emoji}</span>
                 {doc.title}
                 {hasContent && !isActive && (
                   <span style={{
-                    width: "5px", height: "5px", borderRadius: "50%",
-                    background: c.primary, opacity: 0.5, flexShrink: 0,
+                    width: "4px", height: "4px", borderRadius: "50%",
+                    background: c.primary, opacity: 0.6,
                   }} />
                 )}
               </button>
@@ -111,29 +125,24 @@ export default function CadernoView({ hist, mem, macro, micro }) {
       </div>
 
       {/* Content area */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", background: c.bg }}>
-        <div style={{ padding: "14px 16px 28px" }}>
-          {/* Subtitle */}
-          <p style={{
-            fontFamily: theme.font, color: c.textSecondary, fontSize: "12px",
-            marginBottom: "14px", display: "flex", alignItems: "center", gap: "6px",
-          }}>
-            <span style={{ fontSize: "14px" }}>{active.emoji}</span>
-            {active.subtitle}
-          </p>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", background: c.bg, display: "flex", flexDirection: "column" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
 
           {/* Document content */}
           {content.trim() ? (
             <div style={{
-              background: c.surface, borderRadius: "16px", padding: "18px",
-              border: `1px solid ${c.border}`, boxShadow: "0 1px 6px rgba(0,0,0,0.05)",
+              flex: 1,
+              background: c.surface, padding: "24px 16px 36px",
+              borderBottom: `1px solid ${c.border}`,
             }}>
               <MD content={content} />
             </div>
           ) : (
             <div style={{
-              background: c.surface, borderRadius: "16px", padding: "36px 24px",
-              border: `1px solid ${c.border}`, textAlign: "center",
+              flex: 1,
+              background: c.surface, padding: "40px 24px",
+              borderBottom: `1px solid ${c.border}`, textAlign: "center",
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
             }}>
               <span style={{ fontSize: "40px", display: "block", marginBottom: "14px" }}>{active.emoji}</span>
               <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "13px", lineHeight: "1.6", maxWidth: "260px", margin: "0 auto" }}>
@@ -142,14 +151,15 @@ export default function CadernoView({ hist, mem, macro, micro }) {
             </div>
           )}
 
-          <p style={{
-            fontFamily: theme.font, color: c.textMuted, fontSize: "10.5px",
-            textAlign: "center", marginTop: "18px", fontStyle: "italic",
-          }}>
-            ✏️ Gerenciado automaticamente pelo coach durante suas conversas.
-          </p>
-
-          <div ref={bottomRef} />
+          <div style={{ padding: "0 16px 28px" }}>
+            <p style={{
+              fontFamily: theme.font, color: c.textMuted, fontSize: "10.5px",
+              textAlign: "center", marginTop: "18px", fontStyle: "italic",
+            }}>
+              ✏️ Gerenciado automaticamente pelo coach durante suas conversas.
+            </p>
+            <div ref={bottomRef} />
+          </div>
         </div>
       </div>
     </div>

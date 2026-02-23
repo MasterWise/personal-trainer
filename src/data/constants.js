@@ -159,7 +159,7 @@ export const INIT_HIST = `# Histórico — Registro de Dados e Acompanhamento
 
 export const INIT_PLANO = JSON.stringify({
   date: new Date().toLocaleDateString("pt-BR"),
-  meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45 },
+  meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 },
   grupos: [
     {
       nome: "Manhã", emoji: "🌅",
@@ -269,7 +269,7 @@ Não quero viver na "perfeição" nem na culpa. Quero um plano que eu consiga se
 Minha intenção é simples e muito séria: **quero construir um corpo e uma rotina que eu não perca quando a vida aperta.** Quero que meu padrão seja fazer o certo no automático — e que a versão de mim que aparece no espelho em 2027 seja uma mulher mais forte, mais definida, mais segura, e pronta para ser lar de mais um lindo bebê.`;
 
 export const INIT_CAL = JSON.stringify({
-  meta_diaria: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45 },
+  meta_diaria: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 },
   dias: {},
 });
 

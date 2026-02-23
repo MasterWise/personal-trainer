@@ -65,7 +65,7 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
     return () => clearTimeout(timer);
   }, [p]);
 
-  const sectionStyle = { background: c.surface, borderRadius: "16px", padding: "18px", marginBottom: "12px", border: `1px solid ${c.border}`, boxShadow: "0 1px 6px rgba(0,0,0,0.05)" };
+  const sectionStyle = { background: c.surface, padding: "24px 16px", borderBottom: `1px solid ${c.border}` };
   const secTitle = (icon, title) => (
     <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px", paddingBottom: "10px", borderBottom: `1px solid ${c.border}` }}>
       <span style={{ fontSize: "18px" }}>{icon}</span>
@@ -87,7 +87,7 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
 
   return (
     <div style={{ overflowY: "auto", height: "100%", background: c.bg }}>
-      <div style={{ padding: "14px 15px 90px" }}>
+      <div style={{ padding: "0 0 90px", display: "flex", flexDirection: "column" }}>
 
         {/* Identidade */}
         <div style={sectionStyle}>
@@ -279,7 +279,7 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
 
       {/* Modal editor */}
       {modal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 300, maxWidth: "430px", margin: "0 auto", display: "flex", flexDirection: "column", background: c.bg }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 300, maxWidth: "385px", margin: "0 auto", display: "flex", flexDirection: "column", background: c.bg }}>
           <div style={{ background: c.surface, borderBottom: `1px solid ${c.border}`, padding: "13px 16px", flexShrink: 0, display: "flex", alignItems: "center", gap: "12px" }}>
             <button onClick={() => setModal(null)}
               style={{ width: "34px", height: "34px", borderRadius: "10px", border: `1px solid ${c.border}`, background: c.bg, cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>‹</button>

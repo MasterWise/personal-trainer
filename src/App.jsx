@@ -274,7 +274,7 @@ export default function App() {
     let calObj;
     try { calObj = JSON.parse(docs.cal || "{}"); } catch { calObj = {}; }
     if (!calObj.dias) calObj.dias = {};
-    if (!calObj.dias[today]) calObj.dias[today] = { kcal_consumido: 0, proteina_g: 0, carbo_g: 0, gordura_g: 0, refeicoes: [] };
+    if (!calObj.dias[today]) calObj.dias[today] = { kcal_consumido: 0, proteina_g: 0, carbo_g: 0, gordura_g: 0, fibra_g: 0, refeicoes: [] };
 
     const dia = calObj.dias[today];
     const n = item.nutri;
@@ -284,6 +284,7 @@ export default function App() {
     dia.proteina_g = Math.max(0, +(((dia.proteina_g || 0) + sign * (n.proteina_g || 0)).toFixed(1)));
     dia.carbo_g = Math.max(0, +(((dia.carbo_g || 0) + sign * (n.carbo_g || 0)).toFixed(1)));
     dia.gordura_g = Math.max(0, +(((dia.gordura_g || 0) + sign * (n.gordura_g || 0)).toFixed(1)));
+    dia.fibra_g = Math.max(0, +(((dia.fibra_g || 0) + sign * (n.fibra_g || 0)).toFixed(1)));
 
     if (checked) {
       dia.refeicoes = dia.refeicoes || [];
@@ -364,7 +365,7 @@ export default function App() {
       </div>
       <TabBar tab={activeTab} setTab={setActiveTab} unreadCount={unreadCount} />
       {showHistory && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 200, maxWidth: "430px", margin: "0 auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, maxWidth: "385px", margin: "0 auto", display: "flex", flexDirection: "column" }}>
           <ConvoDrawerReal convos={convos} onLoad={loadConvo} onDelete={deleteConvo} onClose={() => setShowHistory(false)} />
         </div>
       )}

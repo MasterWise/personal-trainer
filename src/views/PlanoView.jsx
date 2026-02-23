@@ -8,7 +8,7 @@ const TIPO_BADGE = {
 };
 
 function sumNutri(itens, onlyChecked) {
-  const r = { kcal: 0, proteina_g: 0, carbo_g: 0, gordura_g: 0 };
+  const r = { kcal: 0, proteina_g: 0, carbo_g: 0, gordura_g: 0, fibra_g: 0 };
   for (const item of itens) {
     if (item.tipo !== "alimento" || !item.nutri) continue;
     if (onlyChecked && !item.checked) continue;
@@ -16,8 +16,15 @@ function sumNutri(itens, onlyChecked) {
     r.proteina_g += item.nutri.proteina_g || 0;
     r.carbo_g += item.nutri.carbo_g || 0;
     r.gordura_g += item.nutri.gordura_g || 0;
+    r.fibra_g += item.nutri.fibra_g || 0;
   }
-  return { kcal: Math.round(r.kcal), proteina_g: +r.proteina_g.toFixed(1), carbo_g: +r.carbo_g.toFixed(1), gordura_g: +r.gordura_g.toFixed(1) };
+  return {
+    kcal: Math.round(r.kcal),
+    proteina_g: +r.proteina_g.toFixed(1),
+    carbo_g: +r.carbo_g.toFixed(1),
+    gordura_g: +r.gordura_g.toFixed(1),
+    fibra_g: +r.fibra_g.toFixed(1)
+  };
 }
 
 function getAllItens(grupos) {
@@ -43,10 +50,11 @@ function DaySummaryCard({ meta, planejadas, realizadas, theme }) {
     { label: "Proteína", key: "proteina_g", color: "#5A9A5A", unit: "g" },
     { label: "Carbo", key: "carbo_g", color: "#B87850", unit: "g" },
     { label: "Gordura", key: "gordura_g", color: "#7A6AAA", unit: "g" },
+    { label: "Fibras", key: "fibra_g", color: "#8D6E63", unit: "g" },
   ];
 
   return (
-    <div style={{ background: c.surface, borderRadius: "18px", padding: "16px", marginBottom: "12px", border: `1px solid ${c.border}`, boxShadow: "0 1px 6px rgba(0,0,0,0.05)" }}>
+    <div style={{ background: c.surface, padding: "24px 16px", borderBottom: `1px solid ${c.border}` }}>
       <p style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "15px", fontWeight: "700", marginBottom: "12px" }}>📊 Resumo do dia</p>
 
       {/* Header */}
@@ -123,6 +131,7 @@ function PlanItem({ item, onToggle, theme }) {
               { v: item.nutri.proteina_g, u: "p", cl: "#5A9A5A" },
               { v: item.nutri.carbo_g, u: "c", cl: "#B87850" },
               { v: item.nutri.gordura_g, u: "g", cl: "#7A6AAA" },
+              { v: item.nutri.fibra_g, u: "f", cl: "#8D6E63" },
             ].map(n => (
               <span key={n.u} style={{ fontFamily: theme.font, fontSize: "10.5px", color: n.cl, fontWeight: "600", opacity: item.checked ? 0.5 : 0.8 }}>
                 {n.v}{n.u}
@@ -150,7 +159,7 @@ function GrupoCard({ grupo, onToggle, theme }) {
   const hasNutri = grupoNutriPlan.kcal > 0;
 
   return (
-    <div style={{ background: c.surface, borderRadius: "16px", padding: "14px 14px 10px", marginBottom: "10px", border: `1px solid ${c.border}`, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+    <div style={{ background: c.surface, padding: "20px 16px", borderBottom: `1px solid ${c.border}` }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -209,9 +218,9 @@ export default function PlanoView({ plano, cal, onGeneratePlan, generating, onTo
   if (!planoObj) {
     return (
       <div style={{ overflowY: "auto", height: "100%", background: c.bg }}>
-        <div style={{ padding: "14px 16px 28px" }}>
-          <GenerateBar theme={theme} today={today} onGeneratePlan={onGeneratePlan} generating={generating} />
-          <div style={{ background: c.surface, borderRadius: "16px", padding: "18px", border: `1px solid ${c.border}`, boxShadow: "0 1px 6px rgba(0,0,0,0.05)" }}>
+        <div style={{ padding: "0 0 28px", display: "flex", flexDirection: "column" }}>
+        <GenerateBar theme={theme} today={today} onGeneratePlan={onGeneratePlan} generating={generating} />
+        <div style={{ background: c.surface, padding: "24px 16px 36px", borderBottom: `1px solid ${c.border}`, flex: 1 }}>
             <MD content={plano} />
           </div>
           <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px", textAlign: "center", marginTop: "14px" }}>
@@ -224,7 +233,7 @@ export default function PlanoView({ plano, cal, onGeneratePlan, generating, onTo
 
   // Calculate totals
   const allItens = getAllItens(planoObj.grupos);
-  const meta = planoObj.meta || { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45 };
+  const meta = planoObj.meta || { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 };
   const planejadas = sumNutri(allItens, false);
   const realizadas = sumNutri(allItens, true);
   const totalItens = allItens.length;
@@ -232,7 +241,7 @@ export default function PlanoView({ plano, cal, onGeneratePlan, generating, onTo
 
   return (
     <div style={{ overflowY: "auto", height: "100%", background: c.bg }}>
-      <div style={{ padding: "14px 16px 28px" }}>
+      <div style={{ padding: "0 0 28px", display: "flex", flexDirection: "column" }}>
 
         <GenerateBar theme={theme} today={today} onGeneratePlan={onGeneratePlan} generating={generating} totalDone={totalDone} totalItens={totalItens} />
 
@@ -256,7 +265,7 @@ function GenerateBar({ theme, today, onGeneratePlan, generating, totalDone, tota
   const allDone = hasProgress && totalDone === totalItens;
 
   return (
-    <div style={{ background: `linear-gradient(135deg,${c.primaryLight}22,${c.primary}18)`, border: `1.5px solid ${c.primary}40`, borderRadius: "18px", padding: "16px", marginBottom: "14px" }}>
+    <div style={{ background: `linear-gradient(135deg,${c.primaryLight}20,${c.primary}15)`, borderBottom: `1px solid ${c.primary}30`, padding: "20px 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px" }}>
         <div>
           <p style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>📅 Plano de hoje</p>
