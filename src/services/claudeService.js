@@ -57,7 +57,7 @@ export async function sendMessage(messages, systemInstructions, systemContext, o
     : messages;
 
   const payload = {
-    model: options.model || "claude-3-7-sonnet-20250219",
+    model: options.model || "claude-sonnet-4-6",
     max_tokens: options.maxTokens || 32000,
     messages: fullMessages,
     output_config: {
