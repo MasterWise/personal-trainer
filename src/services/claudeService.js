@@ -15,7 +15,19 @@ const RESPONSE_SCHEMA = {
           },
           action: {
             type: "string",
-            enum: ["append", "replace_all", "add_progresso"],
+            enum: [
+              "append", 
+              "replace_all", 
+              "add_progresso", 
+              "append_item", 
+              "patch_item", 
+              "delete_item", 
+              "append_micro", 
+              "patch_micro", 
+              "update_calorias_day", 
+              "log_treino_day", 
+              "patch_coach_note"
+            ],
           },
           content: { type: "string" },
           requiresPermission: { type: "boolean" },
@@ -45,8 +57,8 @@ export async function sendMessage(messages, systemInstructions, systemContext, o
     : messages;
 
   const payload = {
-    model: options.model || "claude-sonnet-4-6",
-    max_tokens: options.maxTokens || 8000,
+    model: options.model || "claude-3-7-sonnet-20250219",
+    max_tokens: options.maxTokens || 32000,
     messages: fullMessages,
     output_config: {
       format: {

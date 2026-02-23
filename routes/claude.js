@@ -28,8 +28,8 @@ export default function claudeRoutes() {
       }
 
       const payload = {
-        model: model || "claude-sonnet-4-20250514",
-        max_tokens: max_tokens || 4096,
+        model: model || "claude-3-7-sonnet-20250219",
+        max_tokens: max_tokens || 64000,
         messages
       };
 

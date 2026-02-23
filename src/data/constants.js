@@ -157,57 +157,61 @@ export const INIT_HIST = `# Histórico — Registro de Dados e Acompanhamento
 
 **Meta 2027:** 55–58 kg / <18% gordura`;
 
+const today = new Date().toLocaleDateString("pt-BR");
+
 export const INIT_PLANO = JSON.stringify({
-  date: new Date().toLocaleDateString("pt-BR"),
-  meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 },
-  grupos: [
-    {
-      nome: "Manhã", emoji: "🌅",
-      itens: [
-        { id: "m1", tipo: "outro", texto: "Água ao acordar (500ml)", checked: false },
-        { id: "m2", tipo: "alimento", texto: "1 banana", checked: false, nutri: { kcal: 89, proteina_g: 1.1, carbo_g: 23, gordura_g: 0.3 } },
-      ],
-    },
-    {
-      nome: "Treino", emoji: "🏋️",
-      itens: [
-        { id: "t1", tipo: "treino", texto: "Pilates 1h", checked: false, treino_tipo: "Pilates", duracao_min: 60 },
-      ],
-    },
-    {
-      nome: "Almoço", emoji: "🍽️",
-      itens: [
-        { id: "a1", tipo: "alimento", texto: "4 col. arroz integral", checked: false, nutri: { kcal: 172, proteina_g: 3.6, carbo_g: 36, gordura_g: 1.4 } },
-        { id: "a2", tipo: "alimento", texto: "Frango grelhado (120g)", checked: false, nutri: { kcal: 198, proteina_g: 37, carbo_g: 0, gordura_g: 4.3 } },
-        { id: "a3", tipo: "alimento", texto: "Salada variada (folhas + pepino + tomate-cereja)", checked: false, nutri: { kcal: 35, proteina_g: 2, carbo_g: 6, gordura_g: 0.5 } },
-        { id: "a4", tipo: "alimento", texto: "Legumes refogados (chuchu + cenoura)", checked: false, nutri: { kcal: 62, proteina_g: 1.5, carbo_g: 12, gordura_g: 1.2 } },
-        { id: "a5", tipo: "alimento", texto: "Azeite (1 col. sopa)", checked: false, nutri: { kcal: 72, proteina_g: 0, carbo_g: 0, gordura_g: 8 } },
-      ],
-    },
-    {
-      nome: "Lanche 16h", emoji: "⚡",
-      itens: [
-        { id: "l1", tipo: "alimento", texto: "Pão integral (2 fatias)", checked: false, nutri: { kcal: 140, proteina_g: 6, carbo_g: 24, gordura_g: 2 } },
-        { id: "l2", tipo: "alimento", texto: "Iogurte vegetal (170g)", checked: false, nutri: { kcal: 95, proteina_g: 3.5, carbo_g: 14, gordura_g: 2.5 } },
-        { id: "l3", tipo: "alimento", texto: "Castanhas (20g)", checked: false, nutri: { kcal: 130, proteina_g: 3, carbo_g: 4, gordura_g: 12 } },
-        { id: "l4", tipo: "alimento", texto: "1 maçã", checked: false, nutri: { kcal: 52, proteina_g: 0.3, carbo_g: 14, gordura_g: 0.2 } },
-        { id: "l5", tipo: "outro", texto: "Água (≥ 500ml)", checked: false },
-      ],
-    },
-    {
-      nome: "Jantar ~19h", emoji: "🌙",
-      itens: [
-        { id: "j1", tipo: "alimento", texto: "Omelete (2 ovos + legumes)", checked: false, nutri: { kcal: 196, proteina_g: 14, carbo_g: 3, gordura_g: 14 } },
-        { id: "j2", tipo: "alimento", texto: "Pão integral (1 fatia)", checked: false, nutri: { kcal: 70, proteina_g: 3, carbo_g: 12, gordura_g: 1 } },
-      ],
-    },
-    {
-      nome: "Antes de dormir", emoji: "✨",
-      itens: [
-        { id: "n1", tipo: "alimento", texto: "Suplemento de soja com água", checked: false, nutri: { kcal: 90, proteina_g: 15, carbo_g: 2, gordura_g: 2 } },
-      ],
-    },
-  ],
+  [today]: {
+    date: today,
+    meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 },
+    grupos: [
+      {
+        nome: "Manhã", emoji: "🌅",
+        itens: [
+          { id: "m1", tipo: "outro", texto: "Água ao acordar (500ml)", checked: false },
+          { id: "m2", tipo: "alimento", texto: "1 banana", checked: false, nutri: { kcal: 89, proteina_g: 1.1, carbo_g: 23, gordura_g: 0.3 } },
+        ],
+      },
+      {
+        nome: "Treino", emoji: "🏋️",
+        itens: [
+          { id: "t1", tipo: "treino", texto: "Pilates 1h", checked: false, treino_tipo: "Pilates", duracao_min: 60 },
+        ],
+      },
+      {
+        nome: "Almoço", emoji: "🍽️",
+        itens: [
+          { id: "a1", tipo: "alimento", texto: "4 col. arroz integral", checked: false, nutri: { kcal: 172, proteina_g: 3.6, carbo_g: 36, gordura_g: 1.4 } },
+          { id: "a2", tipo: "alimento", texto: "Frango grelhado (120g)", checked: false, nutri: { kcal: 198, proteina_g: 37, carbo_g: 0, gordura_g: 4.3 } },
+          { id: "a3", tipo: "alimento", texto: "Salada variada (folhas + pepino + tomate-cereja)", checked: false, nutri: { kcal: 35, proteina_g: 2, carbo_g: 6, gordura_g: 0.5 } },
+          { id: "a4", tipo: "alimento", texto: "Legumes refogados (chuchu + cenoura)", checked: false, nutri: { kcal: 62, proteina_g: 1.5, carbo_g: 12, gordura_g: 1.2 } },
+          { id: "a5", tipo: "alimento", texto: "Azeite (1 col. sopa)", checked: false, nutri: { kcal: 72, proteina_g: 0, carbo_g: 0, gordura_g: 8 } },
+        ],
+      },
+      {
+        nome: "Lanche 16h", emoji: "⚡",
+        itens: [
+          { id: "l1", tipo: "alimento", texto: "Pão integral (2 fatias)", checked: false, nutri: { kcal: 140, proteina_g: 6, carbo_g: 24, gordura_g: 2 } },
+          { id: "l2", tipo: "alimento", texto: "Iogurte vegetal (170g)", checked: false, nutri: { kcal: 95, proteina_g: 3.5, carbo_g: 14, gordura_g: 2.5 } },
+          { id: "l3", tipo: "alimento", texto: "Castanhas (20g)", checked: false, nutri: { kcal: 130, proteina_g: 3, carbo_g: 4, gordura_g: 12 } },
+          { id: "l4", tipo: "alimento", texto: "1 maçã", checked: false, nutri: { kcal: 52, proteina_g: 0.3, carbo_g: 14, gordura_g: 0.2 } },
+          { id: "l5", tipo: "outro", texto: "Água (≥ 500ml)", checked: false },
+        ],
+      },
+      {
+        nome: "Jantar ~19h", emoji: "🌙",
+        itens: [
+          { id: "j1", tipo: "alimento", texto: "Omelete (2 ovos + legumes)", checked: false, nutri: { kcal: 196, proteina_g: 14, carbo_g: 3, gordura_g: 14 } },
+          { id: "j2", tipo: "alimento", texto: "Pão integral (1 fatia)", checked: false, nutri: { kcal: 70, proteina_g: 3, carbo_g: 12, gordura_g: 1 } },
+        ],
+      },
+      {
+        nome: "Antes de dormir", emoji: "✨",
+        itens: [
+          { id: "n1", tipo: "alimento", texto: "Suplemento de soja com água", checked: false, nutri: { kcal: 90, proteina_g: 15, carbo_g: 2, gordura_g: 2 } },
+        ],
+      },
+    ],
+  }
 });
 
 export const INIT_PROGRESSO = JSON.stringify([{

@@ -8,7 +8,7 @@ import PermCard from "./PermCard.jsx";
 
 import { useDocs } from "../../contexts/DocsContext.jsx";
 
-export default function ChatTab({ docs, setDocs, messages, setMessages, docsReady, setTab, onGeneratePlan, generating }) {
+export default function ChatTab({ docs, setDocs, messages, setMessages, docsReady, setTab, onGeneratePlan, generating, planoDate }) {
   const { applyUpdate } = useDocs();
   const { theme } = useTheme();
   const c = theme.colors;
@@ -33,13 +33,13 @@ export default function ChatTab({ docs, setDocs, messages, setMessages, docsRead
       const apiMsgs = currentMsgs.slice(-40).map(m => ({ role: m.role, content: m.content }));
       const today = new Date().toLocaleDateString("pt-BR");
       const weekday = new Date().toLocaleDateString("pt-BR", { weekday: "long" });
+      const timeStr = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
       let nomePerfil = "Renata";
       try { nomePerfil = JSON.parse(docs.perfil || "{}").nome || "Renata"; } catch { /* ignore */ }
       const data = await sendMessage(
         apiMsgs,
-        buildSystemInstructions(nomePerfil, today, weekday),
-        buildSystemContext(docs),
-        { thinking: true, thinkingBudget: 5000 }
+        buildSystemInstructions(nomePerfil, today, weekday, timeStr, planoDate),
+        buildSystemContext(docs, planoDate)
       );
 
       const textBlock = data.content?.find(b => b.type === "text")?.text;

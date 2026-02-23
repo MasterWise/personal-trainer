@@ -65,29 +65,43 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
     return () => clearTimeout(timer);
   }, [p]);
 
-  const sectionStyle = { background: c.surface, padding: "24px 16px", borderBottom: `1px solid ${c.border}` };
+  const sectionStyle = { 
+    background: c.surface, 
+    padding: "24px 20px", 
+    margin: "0 16px 24px", 
+    borderRadius: "20px",
+    border: `1px solid ${c.border}`,
+    boxShadow: `0 4px 24px rgba(0,0,0,0.02)`
+  };
+  
   const secTitle = (icon, title) => (
-    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px", paddingBottom: "10px", borderBottom: `1px solid ${c.border}` }}>
-      <span style={{ fontSize: "18px" }}>{icon}</span>
-      <h3 style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "16px", fontWeight: "700" }}>{title}</h3>
+    <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
+      <div style={{ 
+        width: "36px", height: "36px", borderRadius: "12px", 
+        background: `${c.primaryLight}20`, color: c.primary,
+        display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" 
+      }}>
+        {icon}
+      </div>
+      <h3 style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "17px", fontWeight: "700" }}>{title}</h3>
     </div>
   );
 
   const btnRemove = (onClick) => (
-    <button onClick={onClick} style={{ width: "34px", height: "34px", borderRadius: "8px", border: `1px solid ${c.border}`, background: c.surface, cursor: "pointer", color: c.textMuted, fontSize: "14px", flexShrink: 0 }}>✕</button>
+    <button onClick={onClick} style={{ width: "38px", height: "38px", borderRadius: "12px", border: "none", background: `${c.textMuted}10`, cursor: "pointer", color: c.textMuted, fontSize: "14px", flexShrink: 0, transition: "background 0.2s" }}>✕</button>
   );
 
   const btnAdd = (onClick, label) => (
-    <button onClick={onClick} style={{ padding: "8px 14px", background: "transparent", border: `1.5px dashed ${c.border}`, borderRadius: "10px", fontFamily: theme.font, color: c.textMuted, fontSize: "13px", cursor: "pointer", width: "100%", marginTop: "4px" }}>
+    <button onClick={onClick} style={{ padding: "12px 16px", background: "transparent", border: `1.5px dashed ${c.border}`, borderRadius: "12px", fontFamily: theme.font, color: c.textMuted, fontSize: "13.5px", fontWeight: "600", cursor: "pointer", width: "100%", marginTop: "8px", transition: "all 0.2s" }}>
       + {label}
     </button>
   );
 
-  const inputStyle = { padding: "8px 12px", background: c.bg, border: `1.5px solid ${c.border}`, borderRadius: "10px", fontFamily: theme.font, fontSize: "13px", color: c.text, outline: "none" };
+  const inputStyle = { padding: "10px 14px", background: c.bg, border: `1px solid ${c.border}`, borderRadius: "12px", fontFamily: theme.font, fontSize: "14px", color: c.text, outline: "none", boxShadow: `inset 0 2px 4px rgba(0,0,0,0.02)` };
 
   return (
     <div style={{ overflowY: "auto", height: "100%", background: c.bg }}>
-      <div style={{ padding: "0 0 90px", display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "16px 0 90px", display: "flex", flexDirection: "column" }}>
 
         {/* Identidade */}
         <div style={sectionStyle}>

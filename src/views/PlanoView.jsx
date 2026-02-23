@@ -7,6 +7,17 @@ const TIPO_BADGE = {
   outro: { emoji: "📝", label: "outro", color: "#9E7F68" },
 };
 
+function parseDateBR(dateStr) {
+  if (!dateStr) return new Date();
+  const [d, m, y] = dateStr.split("/");
+  return new Date(y, m - 1, d);
+}
+
+function toDateBR(dateObj) {
+  if (!dateObj) return "";
+  return dateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
 function sumNutri(itens, onlyChecked) {
   const r = { kcal: 0, proteina_g: 0, carbo_g: 0, gordura_g: 0, fibra_g: 0 };
   for (const item of itens) {
@@ -54,15 +65,12 @@ function DaySummaryCard({ meta, planejadas, realizadas, theme }) {
   ];
 
   return (
-    <div style={{ background: c.surface, padding: "24px 16px", borderBottom: `1px solid ${c.border}` }}>
-      <p style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "15px", fontWeight: "700", marginBottom: "12px" }}>📊 Resumo do dia</p>
-
-      {/* Header */}
-      <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 60px 60px 60px", gap: "4px", marginBottom: "8px", paddingBottom: "6px", borderBottom: `1px solid ${c.border}` }}>
-        <span />
-        <span />
-        {["Necessárias", "Planejadas", "Realizadas"].map(h => (
-          <span key={h} style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.03em", textAlign: "center", fontWeight: "700" }}>{h}</span>
+    <div style={{ background: c.surface, padding: "16px 16px", borderBottom: `1px solid ${c.border}` }}>
+      {/* Header with Title Integrated */}
+      <div style={{ display: "grid", gridTemplateColumns: "60px 1fr 48px 48px 48px", gap: "2px", alignItems: "flex-end", marginBottom: "8px", paddingBottom: "6px", borderBottom: `1px solid ${c.border}` }}>
+        <p style={{ gridColumn: "span 2", fontFamily: theme.headingFont, color: c.text, fontSize: "14px", fontWeight: "700", margin: 0, lineHeight: 1 }}>📊 Resumo do dia</p>
+        {["Meta", "Plan.", "Feito"].map(h => (
+          <span key={h} style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "8px", textTransform: "uppercase", letterSpacing: "0.03em", textAlign: "center", fontWeight: "700", paddingBottom: "1px" }}>{h}</span>
         ))}
       </div>
 
@@ -71,12 +79,12 @@ function DaySummaryCard({ meta, planejadas, realizadas, theme }) {
         const plan = planejadas[row.key] || 0;
         const real = realizadas[row.key] || 0;
         return (
-          <div key={row.key} style={{ display: "grid", gridTemplateColumns: "80px 1fr 60px 60px 60px", gap: "4px", alignItems: "center", marginBottom: "6px" }}>
-            <span style={{ fontFamily: theme.font, color: c.textSecondary, fontSize: "12px", fontWeight: "600" }}>{row.label}</span>
+          <div key={row.key} style={{ display: "grid", gridTemplateColumns: "60px 1fr 48px 48px 48px", gap: "2px", alignItems: "center", marginBottom: "6px" }}>
+            <span style={{ fontFamily: theme.font, color: c.textSecondary, fontSize: "11px", fontWeight: "600" }}>{row.label}</span>
             <MiniBar value={real} max={nec} color={row.color} theme={theme} />
-            <span style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "11px", textAlign: "center" }}>{nec}{row.unit}</span>
-            <span style={{ fontFamily: theme.font, color: c.textSecondary, fontSize: "11px", textAlign: "center" }}>{plan}{row.unit}</span>
-            <span style={{ fontFamily: theme.font, color: real >= nec ? "#5A9A5A" : c.text, fontSize: "11px", textAlign: "center", fontWeight: "700" }}>{real}{row.unit}</span>
+            <span style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "10px", textAlign: "center" }}>{nec}{row.unit}</span>
+            <span style={{ fontFamily: theme.font, color: c.textSecondary, fontSize: "10px", textAlign: "center" }}>{plan}{row.unit}</span>
+            <span style={{ fontFamily: theme.font, color: real >= nec ? "#5A9A5A" : c.text, fontSize: "10px", textAlign: "center", fontWeight: "700" }}>{real}{row.unit}</span>
           </div>
         );
       })}
@@ -106,22 +114,23 @@ function PlanItem({ item, onToggle, theme }) {
 
       {/* Content */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+        <div style={{ lineHeight: "1.4" }}>
           <span style={{
-            fontFamily: theme.font, fontSize: "13.5px", lineHeight: "1.4",
+            fontSize: "12.5px",
+            display: "inline-block", marginRight: "5px", verticalAlign: "baseline",
+            opacity: item.checked ? 0.3 : 0.75, transition: "opacity 0.2s"
+          }}>
+            {badge.emoji}
+          </span>
+          <span style={{
+            fontFamily: theme.font, fontSize: "13.5px",
             color: item.checked ? c.textMuted : c.text,
             textDecoration: item.checked ? "line-through" : "none",
             opacity: item.checked ? 0.7 : 1,
             transition: "all 0.2s",
+            wordBreak: "break-word"
           }}>
             {item.texto}
-          </span>
-          <span style={{
-            fontSize: "9px", fontFamily: theme.font, padding: "1px 6px", borderRadius: "6px",
-            background: `${badge.color}18`, color: badge.color, fontWeight: "600",
-            whiteSpace: "nowrap",
-          }}>
-            {badge.emoji} {badge.label}
           </span>
         </div>
         {item.tipo === "alimento" && item.nutri && (
@@ -159,9 +168,9 @@ function GrupoCard({ grupo, onToggle, theme }) {
   const hasNutri = grupoNutriPlan.kcal > 0;
 
   return (
-    <div style={{ background: c.surface, padding: "20px 16px", borderBottom: `1px solid ${c.border}` }}>
+    <div style={{ background: c.surface, padding: "14px 16px", borderBottom: `1px solid ${c.border}` }}>
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span style={{ fontSize: "18px" }}>{grupo.emoji || "📋"}</span>
           <span style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "14px", fontWeight: "700" }}>{grupo.nome}</span>
@@ -198,87 +207,204 @@ function GrupoCard({ grupo, onToggle, theme }) {
   );
 }
 
-export default function PlanoView({ plano, cal, onGeneratePlan, generating, onToggleItem }) {
+export default function PlanoView({ planoDictStr, cal, onGeneratePlan, generating, onToggleItem, selectedDate, setSelectedDate }) {
   const { theme } = useTheme();
   const c = theme.colors;
-  const today = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
 
-  // Accept plano as object or JSON string, fallback to markdown
+  // Parse plano dict (handles both old flat and new dict formats)
+  let planoDict = {};
   let planoObj = null;
-  if (plano && typeof plano === "object" && plano.grupos) {
-    planoObj = plano;
-  } else if (typeof plano === "string") {
-    try {
-      const parsed = JSON.parse(plano);
-      if (parsed && parsed.grupos) planoObj = parsed;
-    } catch { /* markdown fallback */ }
-  }
+  try {
+    const parsed = JSON.parse(planoDictStr || "{}");
+    if (parsed.grupos) {
+      // Old flat format — wrap into dict
+      const oldDate = parsed.date || selectedDate;
+      planoDict = { [oldDate]: parsed };
+    } else {
+      planoDict = parsed;
+    }
+    const p = planoDict[selectedDate];
+    if (p && p.grupos) planoObj = p;
+  } catch { /* fallback */ }
 
-  // Markdown fallback
-  if (!planoObj) {
-    return (
-      <div style={{ overflowY: "auto", height: "100%", background: c.bg }}>
-        <div style={{ padding: "0 0 28px", display: "flex", flexDirection: "column" }}>
-        <GenerateBar theme={theme} today={today} onGeneratePlan={onGeneratePlan} generating={generating} />
-        <div style={{ background: c.surface, padding: "24px 16px 36px", borderBottom: `1px solid ${c.border}`, flex: 1 }}>
-            <MD content={plano} />
-          </div>
-          <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px", textAlign: "center", marginTop: "14px" }}>
-            ✨ Gere um novo plano para ativar o modo interativo.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Calculate totals
-  const allItens = getAllItens(planoObj.grupos);
-  const meta = planoObj.meta || { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 };
-  const planejadas = sumNutri(allItens, false);
-  const realizadas = sumNutri(allItens, true);
+  // Totals (only if plan exists for selected date)
+  const allItens = planoObj ? getAllItens(planoObj.grupos) : [];
+  const meta = planoObj?.meta || { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 };
+  const planejadas = planoObj ? sumNutri(allItens, false) : null;
+  const realizadas = planoObj ? sumNutri(allItens, true) : null;
   const totalItens = allItens.length;
   const totalDone = allItens.filter(i => i.checked).length;
 
   return (
-    <div style={{ overflowY: "auto", height: "100%", background: c.bg }}>
+    <div style={{ overflowY: "auto", overflowX: "hidden", height: "100%", background: c.bg }}>
       <div style={{ padding: "0 0 28px", display: "flex", flexDirection: "column" }}>
 
-        <GenerateBar theme={theme} today={today} onGeneratePlan={onGeneratePlan} generating={generating} totalDone={totalDone} totalItens={totalItens} />
+        <PlanHeader
+          theme={theme}
+          planoDict={planoDict}
+          selectedDate={selectedDate}
+          setSelectedDate={setSelectedDate}
+          onGeneratePlan={onGeneratePlan}
+          generating={generating}
+          totalDone={totalDone}
+          totalItens={totalItens}
+          hasPlano={!!planoObj}
+        />
 
-        <DaySummaryCard meta={meta} planejadas={planejadas} realizadas={realizadas} theme={theme} />
-
-        {planoObj.grupos.map((grupo, i) => (
-          <GrupoCard key={grupo.nome + i} grupo={grupo} onToggle={onToggleItem} theme={theme} />
-        ))}
-
-        <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px", textAlign: "center", marginTop: "14px" }}>
-          ✏️ Marque itens conforme realiza. O coach atualiza o plano pelo chat.
-        </p>
+        {planoObj ? (
+          <>
+            <DaySummaryCard meta={meta} planejadas={planejadas} realizadas={realizadas} theme={theme} />
+            {planoObj.grupos.map((grupo, i) => (
+              <GrupoCard key={grupo.nome + i} grupo={grupo} onToggle={onToggleItem} theme={theme} />
+            ))}
+            <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px", textAlign: "center", marginTop: "14px" }}>
+              ✏️ Marque itens conforme realiza. O coach atualiza o plano pelo chat.
+            </p>
+          </>
+        ) : (
+          <div style={{ padding: "48px 24px", textAlign: "center" }}>
+            <div style={{ fontSize: "40px", marginBottom: "12px", opacity: 0.4 }}>📋</div>
+            <p style={{ fontFamily: theme.headingFont, color: c.textSecondary, fontSize: "15px", fontWeight: "600", marginBottom: "6px" }}>
+              Nenhum plano para esta data
+            </p>
+            <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px", lineHeight: "1.5" }}>
+              Toque em <b>✨ Gerar plano</b> para criar um plano personalizado.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function GenerateBar({ theme, today, onGeneratePlan, generating, totalDone, totalItens }) {
+/* ──────────────────────────────────────────────────────────────────
+   PlanHeader — Mini-week strip + title + generate button
+   Consistent height regardless of plan state
+   ────────────────────────────────────────────────────────────────── */
+function PlanHeader({ theme, planoDict, selectedDate, setSelectedDate, onGeneratePlan, generating, totalDone, totalItens, hasPlano }) {
   const c = theme.colors;
-  const hasProgress = totalItens !== undefined && totalItens > 0;
+  const DAY_LETTERS = ["D", "S", "T", "Q", "Q", "S", "S"];
+  const todayStr = toDateBR(new Date());
+  const isToday = selectedDate === todayStr;
+
+  // Build the week around the selected date (Mon–Sun)
+  const selDate = parseDateBR(selectedDate);
+  const jsDay = selDate.getDay(); // 0=Sun
+  const mondayOffset = jsDay === 0 ? -6 : 1 - jsDay;
+  const monday = new Date(selDate);
+  monday.setDate(selDate.getDate() + mondayOffset);
+
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const dateStr = toDateBR(d);
+    const dayPlan = planoDict[dateStr];
+    const hasPlan = !!(dayPlan && dayPlan.grupos && dayPlan.grupos.length > 0);
+    let status = "empty"; // no plan
+    if (hasPlan) {
+      const items = getAllItens(dayPlan.grupos);
+      const doneCount = items.filter(x => x.checked).length;
+      status = doneCount === items.length && items.length > 0 ? "done" : "has_plan";
+    }
+    return {
+      dateStr,
+      dayNum: d.getDate(),
+      jsDay: d.getDay(),
+      isToday: dateStr === todayStr,
+      isSelected: dateStr === selectedDate,
+      status,
+    };
+  });
+
+  // Week range label  e.g. "17 – 23 Fev"
+  const firstDay = weekDays[0];
+  const lastDay = weekDays[6];
+  const monthName = parseDateBR(lastDay.dateStr).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
+  const weekLabel = `${firstDay.dayNum} – ${lastDay.dayNum} ${monthName}`;
+
+  const changeWeek = (dir) => {
+    const d = parseDateBR(selectedDate);
+    d.setDate(d.getDate() + dir * 7);
+    setSelectedDate(toDateBR(d));
+  };
+
+  const hasProgress = totalItens > 0;
   const allDone = hasProgress && totalDone === totalItens;
+  const formattedSelected = parseDateBR(selectedDate).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
 
   return (
-    <div style={{ background: `linear-gradient(135deg,${c.primaryLight}20,${c.primary}15)`, borderBottom: `1px solid ${c.primary}30`, padding: "20px 16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px" }}>
+    <div style={{ background: `linear-gradient(135deg,${c.primaryLight}20,${c.primary}15)`, borderBottom: `1px solid ${c.primary}30`, padding: "10px 12px 8px", overflow: "hidden" }}>
+
+      {/* Week label + back to today */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+        <span style={{ fontFamily: theme.headingFont, color: c.textSecondary, fontSize: "11px", fontWeight: "600", letterSpacing: "0.02em" }}>
+          {weekLabel}
+        </span>
+        {!isToday && (
+          <button onClick={() => setSelectedDate(todayStr)} style={{ background: "transparent", border: "none", color: c.primary, fontSize: "11px", cursor: "pointer", fontFamily: theme.font, fontWeight: "600" }}>
+            ↩ Hoje
+          </button>
+        )}
+      </div>
+
+      {/* Mini-week strip */}
+      <div style={{ display: "flex", alignItems: "center", marginBottom: "8px" }}>
+        <button onClick={() => changeWeek(-1)} style={{ background: "transparent", border: "none", color: c.textMuted, fontSize: "14px", cursor: "pointer", padding: "2px 4px 2px 0", lineHeight: 1, flexShrink: 0 }}>‹</button>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", flex: 1, minWidth: 0 }}>
+          {weekDays.map(d => {
+            const dotColor = d.status === "done" ? "#5A9A5A" : d.status === "has_plan" ? c.primary : `${c.textMuted}40`;
+            return (
+              <button
+                key={d.dateStr}
+                onClick={() => setSelectedDate(d.dateStr)}
+                style={{
+                  background: "transparent", border: "none", cursor: "pointer", padding: "1px 0",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: "1px",
+                }}
+              >
+                <span style={{ fontFamily: theme.font, fontSize: "9px", color: c.textMuted, fontWeight: d.isToday ? "700" : "400", lineHeight: 1 }}>
+                  {DAY_LETTERS[d.jsDay]}
+                </span>
+                <div style={{
+                  width: "26px", height: "26px", borderRadius: "8px",
+                  background: d.isSelected ? c.primary : "transparent",
+                  border: d.isToday && !d.isSelected ? `2px solid ${c.primary}` : d.isSelected ? "none" : `1px solid ${c.textMuted}25`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "all 0.15s",
+                }}>
+                  <span style={{
+                    fontFamily: theme.headingFont, fontSize: "11px", fontWeight: "700", lineHeight: 1,
+                    color: d.isSelected ? "#FFF" : d.isToday ? c.primary : c.text,
+                  }}>
+                    {d.dayNum}
+                  </span>
+                </div>
+                <div style={{
+                  width: "4px", height: "4px", borderRadius: "50%",
+                  background: dotColor,
+                  transition: "background 0.2s",
+                }} />
+              </button>
+            );
+          })}
+        </div>
+        <button onClick={() => changeWeek(1)} style={{ background: "transparent", border: "none", color: c.textMuted, fontSize: "14px", cursor: "pointer", padding: "2px 0 2px 4px", lineHeight: 1, flexShrink: 0 }}>›</button>
+      </div>
+
+      {/* Title + Generate button */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
         <div>
-          <p style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>📅 Plano de hoje</p>
-          <p style={{ fontFamily: theme.font, color: c.textSecondary, fontSize: "12px", lineHeight: "1.5", textTransform: "capitalize" }}>{today}</p>
-          {hasProgress && (
-            <p style={{ fontFamily: theme.font, color: allDone ? "#5A9A5A" : c.primary, fontSize: "12px", fontWeight: "700", marginTop: "4px" }}>
-              {allDone ? "✅ Tudo concluído!" : `${totalDone}/${totalItens} itens feitos`}
-            </p>
-          )}
+          <p style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "14px", fontWeight: "700", lineHeight: "1.2" }}>
+            Plano Alimentar
+            {hasProgress && <span style={{ fontFamily: theme.font, color: allDone ? "#5A9A5A" : c.primary, fontSize: "11px", fontWeight: "700", marginLeft: "8px" }}>{allDone ? "✅ Completo" : `${totalDone}/${totalItens}`}</span>}
+          </p>
+          <p style={{ fontFamily: theme.font, color: c.textSecondary, fontSize: "10px", textTransform: "capitalize", lineHeight: "1.3", marginTop: "1px" }}>
+            {formattedSelected}{!hasProgress && <span style={{ color: c.textMuted, marginLeft: "6px" }}>· sem plano</span>}
+          </p>
         </div>
         <button onClick={onGeneratePlan} disabled={generating}
-          style={{ padding: "10px 16px", background: generating ? `${c.primaryLight}80` : c.primary, color: "#FFF", border: "none", borderRadius: "12px", fontFamily: theme.font, fontSize: "13px", fontWeight: "700", cursor: generating ? "not-allowed" : "pointer", whiteSpace: "nowrap", flexShrink: 0, display: "flex", alignItems: "center", gap: "6px", boxShadow: `0 3px 12px ${c.primary}35` }}>
-          {generating ? <><span style={{ display: "inline-block", animation: "bounce 1s infinite", fontSize: "14px" }}>🌿</span> Gerando...</> : "✨ Gerar plano"}
+          style={{ padding: "8px 14px", background: generating ? `${c.primaryLight}80` : c.primary, color: "#FFF", border: "none", borderRadius: "10px", fontFamily: theme.font, fontSize: "12px", fontWeight: "700", cursor: generating ? "not-allowed" : "pointer", whiteSpace: "nowrap", flexShrink: 0, display: "flex", alignItems: "center", gap: "5px", boxShadow: `0 2px 8px ${c.primary}35` }}>
+          {generating ? <><span style={{ display: "inline-block", animation: "bounce 1s infinite", fontSize: "13px" }}>🌿</span> Gerando...</> : "✨ Gerar plano"}
         </button>
       </div>
     </div>

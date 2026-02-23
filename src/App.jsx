@@ -112,6 +112,7 @@ export default function App() {
   const { isAuthenticated, isLoading, needsSetup } = useAuth();
   const { docs, docsReady, setDocs, saveDoc, applyUpdate } = useDocs();
   const [activeTab, setActiveTab] = useState("chat");
+  const [planoDate, setPlanoDate] = useState(new Date().toLocaleDateString("pt-BR"));
   const [messages, setMessages] = useState([]);
   const [convos, setConvos] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -202,10 +203,14 @@ export default function App() {
     if (generating) return;
     setGenerating(true);
     setActiveTab("chat");
-    const today = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
+    
+    const parts = planoDate.split("/");
+    const dt = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
+    const dtFormatted = dt.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
+    
     const triggerMsg = {
       role: "user",
-      content: `[AÇÃO: GERAR PLANO DO DIA]\nData: ${today}\n\nGere um plano alimentar personalizado para hoje. Analisa meu histórico recente para variar os alimentos (evitar repetição), compensar metas calóricas ou de proteína se necessário, e adaptar ao meu dia. Após gerar, atualize o Plano_Renata.md com o plano de hoje.`,
+      content: `[AÇÃO: GERAR PLANO DO DIA]\nData Selecionada no App: ${dtFormatted} (${planoDate})\n\nGere um plano alimentar personalizado para a data correspondente (${planoDate}). Analise meu histórico recente para variar os alimentos (evitar repetição), compensar metas calóricas se necessário, e focar no que deve ser feito nesse dia específico.`,
     };
     const newMsgs = [...messages, triggerMsg];
     setMessages(newMsgs);
@@ -214,13 +219,13 @@ export default function App() {
       const apiMsgs = newMsgs.slice(-40).map(m => ({ role: m.role, content: m.content }));
       const today = new Date().toLocaleDateString("pt-BR");
       const weekday = new Date().toLocaleDateString("pt-BR", { weekday: "long" });
+      const timeStr = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
       let nomePerfil = "Renata";
       try { nomePerfil = JSON.parse(docs.perfil || "{}").nome || "Renata"; } catch { /* ignore */ }
       const data = await sendMessage(
         apiMsgs,
-        buildSystemInstructions(nomePerfil, today, weekday),
-        buildSystemContext(docs),
-        { thinking: true, thinkingBudget: 5000 }
+        buildSystemInstructions(nomePerfil, today, weekday, timeStr, planoDate),
+        buildSystemContext(docs, planoDate)
       );
       const textBlock = data.content?.find(b => b.type === "text")?.text;
       if (!textBlock) throw new Error("Resposta inesperada da API");
@@ -242,8 +247,16 @@ export default function App() {
 
 
   async function handleToggleItem(itemId) {
-    let planoObj;
-    try { planoObj = JSON.parse(docs.plano); } catch { return; }
+    let planoDict;
+    try { planoDict = JSON.parse(docs.plano); } catch { return; }
+    
+    // Migrate old flat format on the fly
+    if (planoDict.grupos) {
+      const oldDate = planoDict.date || planoDate;
+      planoDict = { [oldDate]: planoDict };
+    }
+
+    const planoObj = planoDict[planoDate];
     if (!planoObj?.grupos) return;
 
     let targetItem = null;
@@ -258,25 +271,24 @@ export default function App() {
     const newChecked = !targetItem.checked;
     targetItem.checked = newChecked;
 
-    const newPlano = JSON.stringify(planoObj);
+    const newPlano = JSON.stringify(planoDict);
     setDocs(prev => ({ ...prev, plano: newPlano }));
     await saveDoc("plano", newPlano);
 
     if (targetItem.tipo === "alimento" && targetItem.nutri) {
-      await syncCalItem(targetItem, newChecked);
+      await syncCalItem(targetItem, newChecked, planoDate);
     } else if (targetItem.tipo === "treino") {
-      await syncTreinoItem(targetItem, newChecked);
+      await syncTreinoItem(targetItem, newChecked, planoDate);
     }
   }
 
-  async function syncCalItem(item, checked) {
-    const today = new Date().toLocaleDateString("pt-BR");
+  async function syncCalItem(item, checked, dateStr) {
     let calObj;
     try { calObj = JSON.parse(docs.cal || "{}"); } catch { calObj = {}; }
     if (!calObj.dias) calObj.dias = {};
-    if (!calObj.dias[today]) calObj.dias[today] = { kcal_consumido: 0, proteina_g: 0, carbo_g: 0, gordura_g: 0, fibra_g: 0, refeicoes: [] };
+    if (!calObj.dias[dateStr]) calObj.dias[dateStr] = { kcal_consumido: 0, proteina_g: 0, carbo_g: 0, gordura_g: 0, fibra_g: 0, refeicoes: [] };
 
-    const dia = calObj.dias[today];
+    const dia = calObj.dias[dateStr];
     const n = item.nutri;
     const sign = checked ? 1 : -1;
 
@@ -298,16 +310,15 @@ export default function App() {
     await saveDoc("cal", newCal);
   }
 
-  async function syncTreinoItem(item, checked) {
-    const today = new Date().toLocaleDateString("pt-BR");
+  async function syncTreinoItem(item, checked, dateStr) {
     let treinosObj;
     try { treinosObj = JSON.parse(docs.treinos || "{}"); } catch { treinosObj = {}; }
     if (!treinosObj.registros) treinosObj.registros = [];
 
-    const existingIdx = treinosObj.registros.findIndex(r => r.data === today && r.tipo === (item.treino_tipo || item.texto));
+    const existingIdx = treinosObj.registros.findIndex(r => r.data === dateStr && r.tipo === (item.treino_tipo || item.texto));
 
     if (checked) {
-      const reg = { data: today, tipo: item.treino_tipo || item.texto, duracao_min: item.duracao_min || 60, realizado: true };
+      const reg = { data: dateStr, tipo: item.treino_tipo || item.texto, duracao_min: item.duracao_min || 60, realizado: true };
       if (existingIdx >= 0) {
         treinosObj.registros[existingIdx] = reg;
       } else {
@@ -345,9 +356,9 @@ export default function App() {
     return (
       <>
         <div style={{ display: activeTab === "chat" ? "block" : "none", height: "100%", width: "100%" }}>
-          <ChatTab docs={docs} setDocs={setDocs} messages={messages} setMessages={setMessages} docsReady={docsReady} setTab={setActiveTab} onGeneratePlan={generatePlan} generating={generating} />
+          <ChatTab docs={docs} setDocs={setDocs} messages={messages} setMessages={setMessages} docsReady={docsReady} setTab={setActiveTab} onGeneratePlan={generatePlan} generating={generating} planoDate={planoDate} />
         </div>
-        {activeTab === "plano" && <PlanoView plano={docs.plano} cal={docs.cal} onGeneratePlan={generatePlan} generating={generating} onToggleItem={handleToggleItem} />}
+        {activeTab === "plano" && <PlanoView planoDictStr={docs.plano} cal={docs.cal} onGeneratePlan={generatePlan} generating={generating} onToggleItem={handleToggleItem} selectedDate={planoDate} setSelectedDate={setPlanoDate} />}
         {activeTab === "saude" && <SaudeView cal={docs.cal} treinos={docs.treinos} />}
         {activeTab === "progresso" && <ProgressoView progresso={docs.progresso} />}
         {activeTab === "caderno" && <CadernoView hist={docs.hist} mem={docs.mem} macro={docs.macro} micro={docs.micro} />}
