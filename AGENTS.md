@@ -235,6 +235,15 @@ O documento `plano` usa formato JSON estruturado com checkboxes interativos:
 | is_current flag em conversations | Separa conversa ativa de arquivadas |
 | Seed defaults no setup | Primeiro usuário já tem contexto da Renata |
 
+## Registro recente
+
+- Em 23/02/2026 foi adicionado parser resiliente de respostas Claude no frontend (`src/services/claudeResponseParser.js`), compartilhado entre chat e geração de plano. Ele aceita `content` com `text` (JSON string) e `output_json`, classifica erros de formato (`NO_TEXT_BLOCK`) e diferencia JSON truncado por `stop_reason = max_tokens`.
+- Em 23/02/2026 o backend passou a logar `stop_reason` e `content_types` nas respostas da Anthropic e o debug parser de `ai_logs` foi ajustado para também entender `output_json`, evitando falhas silenciosas de observabilidade.
+- Em 23/02/2026 foi adicionada mitigação no backend para `claude-sonnet-4-6`: quando uma resposta com structured output chega somente com bloco `thinking` (sem `text`/`output_json`), o servidor faz retry automático uma vez sem `thinking` antes de responder ao frontend.
+- Em 23/02/2026 o backend passou a desabilitar `thinking` por padrão em chamadas com structured output (configurável via `CLAUDE_DISABLE_THINKING_FOR_STRUCTURED_OUTPUT=false`) para reduzir casos de resposta `thinking` sem payload final no `claude-sonnet-4-6`.
+- Em 23/02/2026 foi adicionado timeout explícito para chamadas à Anthropic (`CLAUDE_REQUEST_TIMEOUT_MS`, padrão 120000ms) com resposta `504` amigável em vez de `500` genérico quando ocorrer `UND_ERR_HEADERS_TIMEOUT`.
+- Em 23/02/2026 o Express passou a configurar `trust proxy = 1` em produção (Caddy/ngrok) para compatibilidade com `express-rate-limit` quando houver `X-Forwarded-For`.
+
 ## Dados Padrão (Seed)
 
 O primeiro usuário criado via `/api/auth/setup` recebe automaticamente os 9 documentos preenchidos com o perfil da Renata (dados nutricionais, treinos, metas, limitações físicas). Esses dados servem como exemplo e podem ser editados na aba Perfil.

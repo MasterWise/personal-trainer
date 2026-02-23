@@ -5,6 +5,11 @@ import { useTheme } from "./contexts/ThemeContext.jsx";
 import { get, put, post, del } from "./services/api.js";
 import { buildSystemInstructions, buildSystemContext } from "./data/prompts.js";
 import { sendMessage } from "./services/claudeService.js";
+import {
+  getClaudeResponseUserMessage,
+  isClaudeResponseParseError,
+  parseClaudeStructuredResponse,
+} from "./services/claudeResponseParser.js";
 import { FILE_TO_STATE, PROGRESSO_EMOJIS } from "./data/constants.js";
 import Header from "./components/layout/Header.jsx";
 import TabBar from "./components/layout/TabBar.jsx";
@@ -227,9 +232,7 @@ export default function App() {
         buildSystemInstructions(nomePerfil, today, weekday, timeStr, planoDate),
         buildSystemContext(docs, planoDate)
       );
-      const textBlock = data.content?.find(b => b.type === "text")?.text;
-      if (!textBlock) throw new Error("Resposta inesperada da API");
-      const parsed = JSON.parse(textBlock);
+      const parsed = parseClaudeStructuredResponse(data);
 
       const appliedUpdates = [];
       for (const u of (parsed.updates || []).filter(u => !u.requiresPermission)) {
@@ -239,8 +242,12 @@ export default function App() {
       const aiMsg = { role: "assistant", content: parsed.reply || "...", appliedUpdates };
       setMessages(prev => [...prev, aiMsg]);
     } catch (e) {
-      console.error("generatePlan:", e);
-      setMessages(prev => [...prev, { role: "assistant", content: `⚠️ Erro ao gerar plano: ${e.message}` }]);
+      if (isClaudeResponseParseError(e)) {
+        console.error("generatePlan parse error:", e.code, e.meta, e);
+      } else {
+        console.error("generatePlan:", e);
+      }
+      setMessages(prev => [...prev, { role: "assistant", content: `Erro ao gerar plano: ${getClaudeResponseUserMessage(e)}` }]);
     }
     setGenerating(false);
   }

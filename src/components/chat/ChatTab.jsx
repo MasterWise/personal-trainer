@@ -3,6 +3,11 @@ import { useTheme } from "../../contexts/ThemeContext.jsx";
 import { FILE_TO_TAB } from "../../data/constants.js";
 import { buildSystemInstructions, buildSystemContext } from "../../data/prompts.js";
 import { sendMessage } from "../../services/claudeService.js";
+import {
+  getClaudeResponseUserMessage,
+  isClaudeResponseParseError,
+  parseClaudeStructuredResponse,
+} from "../../services/claudeResponseParser.js";
 import ChatMsg from "./ChatMsg.jsx";
 import PermCard from "./PermCard.jsx";
 
@@ -41,15 +46,7 @@ export default function ChatTab({ docs, setDocs, messages, setMessages, docsRead
         buildSystemInstructions(nomePerfil, today, weekday, timeStr, planoDate),
         buildSystemContext(docs, planoDate)
       );
-
-      const textBlock = data.content?.find(b => b.type === "text")?.text;
-      if (!textBlock) {
-        setMessages(prev => [...prev, { role: "assistant", content: "⚠️ Resposta inesperada da API. Tente novamente." }]);
-        setLoading(false);
-        return;
-      }
-
-      const parsed = JSON.parse(textBlock);
+      const parsed = parseClaudeStructuredResponse(data);
       const updates = parsed.updates || [];
 
       const direct = updates.filter(u => !u.requiresPermission);
@@ -69,8 +66,13 @@ export default function ChatTab({ docs, setDocs, messages, setMessages, docsRead
       const aiMsg = { role: "assistant", content: parsed.reply || "...", appliedUpdates };
       setMessages(prev => [...prev, aiMsg]);
     } catch (e) {
-      console.error("send() exception:", e);
-      setMessages(prev => [...prev, { role: "assistant", content: `⚠️ Erro: ${e?.message || String(e)}` }]);
+      if (isClaudeResponseParseError(e)) {
+        console.error("send() parse error:", e.code, e.meta, e);
+        setMessages(prev => [...prev, { role: "assistant", content: getClaudeResponseUserMessage(e) }]);
+      } else {
+        console.error("send() exception:", e);
+        setMessages(prev => [...prev, { role: "assistant", content: `Erro: ${e?.message || String(e)}` }]);
+      }
     }
     setLoading(false);
   }

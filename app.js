@@ -56,6 +56,11 @@ export async function createApp(options = {}) {
 
   const app = express();
 
+  // Behind Caddy/ngrok in production, trust one proxy hop so rate-limit sees client IPs.
+  if (isProd) {
+    app.set("trust proxy", 1);
+  }
+
   // Middleware
   app.use(
     helmet({
