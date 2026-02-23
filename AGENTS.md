@@ -243,6 +243,7 @@ O documento `plano` usa formato JSON estruturado com checkboxes interativos:
 - Em 23/02/2026 o backend passou a desabilitar `thinking` por padrão em chamadas com structured output (configurável via `CLAUDE_DISABLE_THINKING_FOR_STRUCTURED_OUTPUT=false`) para reduzir casos de resposta `thinking` sem payload final no `claude-sonnet-4-6`.
 - Em 23/02/2026 foi adicionado timeout explícito para chamadas à Anthropic (`CLAUDE_REQUEST_TIMEOUT_MS`, padrão 120000ms) com resposta `504` amigável em vez de `500` genérico quando ocorrer `UND_ERR_HEADERS_TIMEOUT`.
 - Em 23/02/2026 o Express passou a configurar `trust proxy = 1` em produção (Caddy/ngrok) para compatibilidade com `express-rate-limit` quando houver `X-Forwarded-For`.
+- Em 23/02/2026 o frontend passou a enviar um `assistant` context message em toda interação (`src/services/claudeService.js`) com envelope `<interaction_context>`, incluindo `<runtime_context>` (`timezone` + `now`, America/Sao_Paulo) e `<memory_context>` (snapshot dinâmico), além de normalizar `messages[*].content` para blocos tipados `{ type: "text" }` antes do proxy `/api/claude`, mantendo o `system` separado.
 
 ## Dados Padrão (Seed)
 
