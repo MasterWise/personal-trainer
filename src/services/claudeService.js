@@ -47,9 +47,9 @@ const RESPONSE_SCHEMA = {
  * @param {Array} messages - the user/assistant conversation history
  * @param {string} systemInstructions - stable system instructions (goes in `system` field)
  * @param {string} systemContext - dynamic user context (injected as first assistant prefill message)
- * @param {Object} options - model, maxTokens, thinking config
+ * Model, max_tokens, thinking, and effort are all configured server-side via env vars.
  */
-export async function sendMessage(messages, systemInstructions, systemContext, options = {}) {
+export async function sendMessage(messages, systemInstructions, systemContext) {
   // Inject the context as an assistant prefill before the real conversation.
   // This follows Anthropic's recommendation: long data before instructions/queries.
   const fullMessages = systemContext
@@ -57,9 +57,8 @@ export async function sendMessage(messages, systemInstructions, systemContext, o
     : messages;
 
   const payload = {
-    model: options.model || "claude-sonnet-4-6",
-    max_tokens: options.maxTokens || 32000,
     messages: fullMessages,
+    // JSON schema output format — the structured response we expect from Claude
     output_config: {
       format: {
         type: "json_schema",
@@ -69,13 +68,6 @@ export async function sendMessage(messages, systemInstructions, systemContext, o
   };
 
   if (systemInstructions) payload.system = systemInstructions;
-
-  if (options.thinking) {
-    payload.thinking = {
-      type: "enabled",
-      budget_tokens: options.thinkingBudget || 5000,
-    };
-  }
 
   return post("/claude", payload);
 }

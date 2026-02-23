@@ -12,6 +12,12 @@ export default function claudeRoutes() {
     const startTime = Date.now();
     const debugMode = req.headers["x-debug-log"] === "true";
 
+    // Read all Claude configuration from env vars
+    const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";
+    const CLAUDE_MAX_OUTPUT_TOKENS = parseInt(process.env.CLAUDE_MAX_OUTPUT_TOKENS || "64000", 10);
+    const CLAUDE_THINKING_TYPE = process.env.CLAUDE_THINKING_TYPE || "adaptive"; // "adaptive" | "disabled"
+    const CLAUDE_EFFORT = process.env.CLAUDE_EFFORT || "high";               // "low" | "medium" | "high"
+
     try {
       const apiKey = process.env.ANTHROPIC_API_KEY;
 
@@ -21,31 +27,45 @@ export default function claudeRoutes() {
         });
       }
 
-      const { model, max_tokens, system, messages, thinking, output_config } = req.body;
+      const { model, max_tokens, system, messages, output_config } = req.body;
 
       if (!messages || !Array.isArray(messages)) {
         return res.status(400).json({ error: 'Campo "messages" e obrigatorio e deve ser um array' });
       }
 
+      // Build the thinking config using modern adaptive thinking for Sonnet 4.6
+      // budget_tokens is deprecated on Sonnet 4.6 — use type: "adaptive" + effort instead
+      const thinkingConfig = CLAUDE_THINKING_TYPE === "adaptive"
+        ? { type: "adaptive" }
+        : null;
+
+      // Build effort config (merged into output_config)
+      const baseOutputConfig = output_config || {};
+      const finalOutputConfig = CLAUDE_THINKING_TYPE === "adaptive"
+        ? { ...baseOutputConfig, effort: CLAUDE_EFFORT }
+        : baseOutputConfig;
+
       const payload = {
-        model: model || "claude-sonnet-4-6",
-        max_tokens: max_tokens || 64000,
-        messages
+        model: model || CLAUDE_MODEL,
+        max_tokens: max_tokens || CLAUDE_MAX_OUTPUT_TOKENS,
+        messages,
       };
 
       if (system) payload.system = system;
-      if (thinking) payload.thinking = thinking;
-      if (output_config) payload.output_config = output_config;
+      if (thinkingConfig) payload.thinking = thinkingConfig;
+      if (Object.keys(finalOutputConfig).length > 0) payload.output_config = finalOutputConfig;
 
       console.log(`[${new Date().toISOString()}] Chamada a API Claude:`, {
         model: payload.model,
         max_tokens: payload.max_tokens,
+        thinking: CLAUDE_THINKING_TYPE,
+        effort: CLAUDE_THINKING_TYPE === "adaptive" ? CLAUDE_EFFORT : "n/a",
         systemLength: system?.length || 0,
         messagesCount: messages.length,
-        thinking: !!thinking,
         structuredOutput: !!output_config,
         debugLog: debugMode,
       });
+
 
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
