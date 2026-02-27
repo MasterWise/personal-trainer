@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTheme } from "../../contexts/ThemeContext.jsx";
 import { TAB_LABELS, TAB_ICONS, FILE_TO_TAB } from "../../data/constants.js";
+import { buildRevisionDiff } from "../../utils/revisionDiff.js";
 
 const DESCRIPTIONS = {
   plano: "Plano atualizado",
@@ -16,41 +17,75 @@ const ACTION_LABELS = {
   replace_all: "Substituído",
   append: "Adicionado",
   add_progresso: "Novo marco",
+  append_item: "Item adicionado",
+  patch_item: "Item atualizado",
+  delete_item: "Item removido",
+  append_micro: "Perfil complementado",
+  patch_micro: "Perfil ajustado",
+  update_calorias_day: "Dia calórico atualizado",
+  log_treino_day: "Treino registrado",
+  patch_coach_note: "Nota atualizada",
+  append_coach_note: "Nota adicionada",
 };
 
-/** Trunca texto longo e tenta formatar JSON para legibilidade */
-function formatPreview(text, maxLen = 600) {
+function getActionSummary(revisions) {
+  const actions = Array.from(
+    new Set(
+      (Array.isArray(revisions) ? revisions : [])
+        .map((rev) => rev?.action)
+        .filter(Boolean)
+    )
+  );
+
+  if (actions.length === 0) return "Atualizado";
+  if (actions.length === 1) return ACTION_LABELS[actions[0]] || "Atualizado";
+  return `${actions.length} alterações`;
+}
+
+/** Formata JSON para legibilidade (sem truncar por padrão) */
+function formatPreview(text, maxLen = null) {
   if (!text) return "(vazio)";
   try {
     const obj = JSON.parse(text);
     const pretty = JSON.stringify(obj, null, 2);
-    return pretty.length > maxLen ? pretty.slice(0, maxLen) + "\n…" : pretty;
+    if (Number.isInteger(maxLen) && maxLen > 0 && pretty.length > maxLen) {
+      return pretty.slice(0, maxLen) + "\n…";
+    }
+    return pretty;
   } catch {
-    return text.length > maxLen ? text.slice(0, maxLen) + "\n…" : text;
+    if (Number.isInteger(maxLen) && maxLen > 0 && text.length > maxLen) {
+      return text.slice(0, maxLen) + "\n…";
+    }
+    return text;
   }
 }
 
-export default function UpdateCard({ revision, setTab, onRevert }) {
+export default function UpdateCard({ revisions = [], setTab, onRevert }) {
   const { theme } = useTheme();
   const c = theme.colors;
   const [expanded, setExpanded] = useState(false);
 
-  const { file, action, before, after, reverted } = revision;
+  const list = Array.isArray(revisions) ? revisions.filter(Boolean) : [];
+  if (list.length === 0) return null;
+  const primary = list[0];
+  const { file, action } = primary;
   const label = TAB_LABELS[file] || file;
   const icon = TAB_ICONS[file] || "📄";
   const tab = FILE_TO_TAB[file];
   const desc = DESCRIPTIONS[file] || `${label} atualizado`;
-  const actionLabel = ACTION_LABELS[action] || action;
+  const actionLabel = getActionSummary(list);
+  const total = list.length;
+  const allReverted = list.every((rev) => rev?.reverted);
 
-  const cardBg = reverted ? `${c.textMuted}10` : c.primaryBg;
-  const cardBorder = reverted ? `${c.textMuted}30` : c.border;
+  const cardBg = allReverted ? `${c.textMuted}10` : c.primaryBg;
+  const cardBorder = allReverted ? `${c.textMuted}30` : c.border;
 
   return (
     <div style={{
       border: `1.5px solid ${cardBorder}`,
       borderRadius: "14px",
       overflow: "hidden",
-      opacity: reverted ? 0.6 : 1,
+      opacity: allReverted ? 0.6 : 1,
       transition: "opacity 0.3s",
     }}>
       {/* Header */}
@@ -63,21 +98,21 @@ export default function UpdateCard({ revision, setTab, onRevert }) {
         <span style={{ fontSize: "16px", flexShrink: 0 }}>{icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{
-            fontFamily: theme.font, color: reverted ? c.textMuted : c.text,
+            fontFamily: theme.font, color: allReverted ? c.textMuted : c.text,
             fontSize: "12.5px", fontWeight: "600", lineHeight: "1.3",
-            textDecoration: reverted ? "line-through" : "none",
+            textDecoration: allReverted ? "line-through" : "none",
           }}>
-            {desc}
+            {desc}{total > 1 ? ` (${total})` : ""}
           </p>
           <p style={{
             fontFamily: theme.font, color: c.textMuted,
             fontSize: "10.5px", marginTop: "1px",
           }}>
-            {actionLabel} · {reverted ? "Revertido" : "Clique para ver detalhes"}
+            {actionLabel} · {allReverted ? "Revertido" : "Clique para ver detalhes"}
           </p>
         </div>
         <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
-          {tab && !reverted && (
+          {tab && !allReverted && (
             <button
               onClick={e => { e.stopPropagation(); setTab(tab); }}
               style={{
@@ -104,51 +139,71 @@ export default function UpdateCard({ revision, setTab, onRevert }) {
           background: c.surface,
           borderTop: `1px solid ${cardBorder}`,
         }}>
-          {/* Before */}
-          {action !== "add_progresso" && (
-            <div style={{ marginBottom: "10px" }}>
-              <p style={{
-                fontFamily: theme.font, fontSize: "10px", fontWeight: "700",
-                color: "#A35A5A", textTransform: "uppercase", letterSpacing: "0.05em",
-                marginBottom: "4px",
-              }}>
-                {action === "append" ? "Conteúdo anterior (mantido)" : "Antes"}
-              </p>
-              <pre style={{
-                fontFamily: "monospace", fontSize: "11px", color: c.textSecondary,
-                background: "#A35A5A0A", border: `1px solid #A35A5A20`,
-                borderRadius: "8px", padding: "8px 10px", margin: 0,
-                whiteSpace: "pre-wrap", wordBreak: "break-word",
-                maxHeight: "200px", overflowY: "auto",
-                opacity: 0.8,
-              }}>
-                {formatPreview(before)}
-              </pre>
-            </div>
-          )}
+          {list.map((rev, idx) => {
+            const diff = buildRevisionDiff(rev.action, rev.before, rev.after);
+            const itemReverted = rev?.reverted === true;
+            return (
+              <div key={`${file}-${action}-${idx}`} style={{ marginBottom: idx === list.length - 1 ? (allReverted ? "0" : "10px") : "12px" }}>
+                {list.length > 1 && (
+                  <p style={{
+                    fontFamily: theme.font,
+                    fontSize: "10px",
+                    fontWeight: "700",
+                    color: c.textMuted,
+                    marginBottom: "6px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}>
+                    Alteração {idx + 1}{itemReverted ? " · Revertida" : ""}
+                  </p>
+                )}
 
-          {/* After */}
-          <div style={{ marginBottom: reverted ? "0" : "10px" }}>
-            <p style={{
-              fontFamily: theme.font, fontSize: "10px", fontWeight: "700",
-              color: "#5A9A5A", textTransform: "uppercase", letterSpacing: "0.05em",
-              marginBottom: "4px",
-            }}>
-              {action === "append" ? "Conteúdo adicionado" : action === "add_progresso" ? "Novo marco" : "Depois"}
-            </p>
-            <pre style={{
-              fontFamily: "monospace", fontSize: "11px", color: c.text,
-              background: "#5A9A5A0A", border: `1px solid #5A9A5A20`,
-              borderRadius: "8px", padding: "8px 10px", margin: 0,
-              whiteSpace: "pre-wrap", wordBreak: "break-word",
-              maxHeight: "200px", overflowY: "auto",
-            }}>
-              {formatPreview(after)}
-            </pre>
-          </div>
+                {!diff.hideBefore && (
+                  <div style={{ marginBottom: "10px" }}>
+                    <p style={{
+                      fontFamily: theme.font, fontSize: "10px", fontWeight: "700",
+                      color: "#A35A5A", textTransform: "uppercase", letterSpacing: "0.05em",
+                      marginBottom: "4px",
+                    }}>
+                      Antes (trecho alterado)
+                    </p>
+                    <pre style={{
+                      fontFamily: "monospace", fontSize: "11px", color: c.textSecondary,
+                      background: "#A35A5A0A", border: `1px solid #A35A5A20`,
+                      borderRadius: "8px", padding: "8px 10px", margin: 0,
+                      whiteSpace: "pre-wrap", wordBreak: "break-word",
+                      maxHeight: "200px", overflowY: "auto",
+                      opacity: 0.8,
+                    }}>
+                      {formatPreview(diff.beforeDisplay)}
+                    </pre>
+                  </div>
+                )}
+
+                <div>
+                  <p style={{
+                    fontFamily: theme.font, fontSize: "10px", fontWeight: "700",
+                    color: "#5A9A5A", textTransform: "uppercase", letterSpacing: "0.05em",
+                    marginBottom: "4px",
+                  }}>
+                    {rev.action === "append" ? "Conteúdo adicionado (diff)" : rev.action === "add_progresso" ? "Novo marco" : "Depois (trecho alterado)"}
+                  </p>
+                  <pre style={{
+                    fontFamily: "monospace", fontSize: "11px", color: c.text,
+                    background: "#5A9A5A0A", border: `1px solid #5A9A5A20`,
+                    borderRadius: "8px", padding: "8px 10px", margin: 0,
+                    whiteSpace: "pre-wrap", wordBreak: "break-word",
+                    maxHeight: "200px", overflowY: "auto",
+                  }}>
+                    {formatPreview(diff.afterDisplay)}
+                  </pre>
+                </div>
+              </div>
+            );
+          })}
 
           {/* Revert Button */}
-          {!reverted && onRevert && (
+          {!allReverted && onRevert && (
             <button
               onClick={onRevert}
               style={{
@@ -164,15 +219,15 @@ export default function UpdateCard({ revision, setTab, onRevert }) {
               onMouseEnter={e => e.currentTarget.style.background = "#A35A5A10"}
               onMouseLeave={e => e.currentTarget.style.background = "transparent"}
             >
-              ↩ Reverter alteração
+              ↩ Reverter {total > 1 ? "alterações do grupo" : "alteração"}
             </button>
           )}
-          {reverted && (
+          {allReverted && (
             <p style={{
               fontFamily: theme.font, fontSize: "11px", color: c.textMuted,
               textAlign: "center", fontStyle: "italic",
             }}>
-              ✓ Esta alteração foi revertida
+              ✓ Este grupo de alterações foi revertido
             </p>
           )}
         </div>

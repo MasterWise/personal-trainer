@@ -11,6 +11,7 @@ import {
   parseClaudeStructuredResponse,
 } from "./services/claudeResponseParser.js";
 import { FILE_TO_STATE, PROGRESSO_EMOJIS } from "./data/constants.js";
+import { lockPlanUpdateToDate } from "./utils/planUpdateGuard.js";
 import Header from "./components/layout/Header.jsx";
 import TabBar from "./components/layout/TabBar.jsx";
 import ChatTab from "./components/chat/ChatTab.jsx";
@@ -361,8 +362,12 @@ export default function App() {
     const parsed = parseClaudeStructuredResponse(data);
 
     const appliedUpdates = [];
+    const planDateLock = contextOpts.conversationType === "plan" ? (contextOpts.planDate || planoDate) : null;
+    const allowPlanReplaceAll = options.autoAction === "generate_plan" || options.autoAction === "new_plan";
     for (const u of (parsed.updates || []).filter(u => !u.requiresPermission)) {
-      const revision = await applyUpdate(u);
+      const guardedUpdate = lockPlanUpdateToDate(u, planDateLock, docs.plano, { allowPlanReplaceAll });
+      if (!guardedUpdate) continue;
+      const revision = await applyUpdate(guardedUpdate);
       if (revision) appliedUpdates.push(revision);
     }
 
@@ -576,6 +581,11 @@ export default function App() {
 
     const newChecked = !targetItem.checked;
     targetItem.checked = newChecked;
+    if (newChecked) {
+      targetItem.checked_source = "user";
+    } else {
+      delete targetItem.checked_source;
+    }
 
     const newPlano = JSON.stringify(planoDict);
     setDocs(prev => ({ ...prev, plano: newPlano }));

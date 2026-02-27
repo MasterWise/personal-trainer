@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "./AuthContext.jsx";
 import { get, put, post } from "../services/api.js";
+import { applyAiCheckedOwnership, applyAiOwnershipToPlanDay, canAiMutatePlanItem } from "../utils/planItemOwnership.js";
 
 const DocsContext = createContext(null);
 
@@ -141,7 +142,8 @@ export function DocsProvider({ children }) {
       } else if (update.action === "replace_all") {
         if (stateKey === "plano") {
           let incomingObj = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-          const targetDate = incomingObj?.date || new Date().toLocaleDateString("pt-BR");
+          incomingObj = applyAiOwnershipToPlanDay(incomingObj);
+          const targetDate = update.targetDate || incomingObj?.date || new Date().toLocaleDateString("pt-BR");
           
           let dict = {};
           if (prevDocs.plano) {
@@ -158,7 +160,8 @@ export function DocsProvider({ children }) {
       } else if (["append_item", "patch_item", "delete_item"].includes(update.action) && stateKey === "plano") {
         // Granular plano updates
         let itemData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-        const targetDate = update.date || itemData.date || new Date().toLocaleDateString("pt-BR");
+        const targetDate = update.targetDate || update.date || itemData.date || new Date().toLocaleDateString("pt-BR");
+        const permissionApproved = update.permissionApproved === true;
         
         // Ensure dict exists
         let dict = {};
@@ -181,20 +184,25 @@ export function DocsProvider({ children }) {
              gi = daily.grupos.length - 1;
           }
           if (!daily.grupos[gi].itens) daily.grupos[gi].itens = [];
-          daily.grupos[gi].itens.push(itemData.item);
+          const incomingItem = applyAiCheckedOwnership({ ...(itemData.item || {}) });
+          daily.grupos[gi].itens.push(incomingItem);
         } else if (update.action === "patch_item" || update.action === "delete_item") {
           // Require item.id
           for (const g of daily.grupos) {
             const idx = g.itens.findIndex(i => i.id === itemData.id);
             if (idx !== -1) {
+              const currentItem = g.itens[idx];
               if (update.action === "delete_item") {
-                // Remove unless checked
-                if (!g.itens[idx].checked) g.itens.splice(idx, 1);
+                if (permissionApproved || canAiMutatePlanItem(currentItem)) {
+                  g.itens.splice(idx, 1);
+                }
               } else if (update.action === "patch_item") {
-                // Merge changes, ignore state change if already checked
-                const wasChecked = g.itens[idx].checked;
-                g.itens[idx] = { ...g.itens[idx], ...itemData.patch };
-                if (wasChecked) g.itens[idx].checked = true; // Protect checked state
+                if (!permissionApproved && !canAiMutatePlanItem(currentItem)) {
+                  break;
+                }
+                const patch = { ...(itemData.patch || {}) };
+                if ("checked_source" in patch) delete patch.checked_source;
+                g.itens[idx] = applyAiCheckedOwnership({ ...currentItem, ...patch });
               }
               break;
             }
@@ -233,7 +241,7 @@ export function DocsProvider({ children }) {
       } else if (update.action === "patch_coach_note" && stateKey === "plano") {
         // Set a daily coach note on the plan without touching items
         let noteData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-        const targetDate = noteData.date || new Date().toLocaleDateString("pt-BR");
+        const targetDate = update.targetDate || noteData.date || new Date().toLocaleDateString("pt-BR");
 
         let dict = {};
         if (prevDocs.plano) {
@@ -243,7 +251,25 @@ export function DocsProvider({ children }) {
           } catch {}
         }
         if (!dict[targetDate]) dict[targetDate] = { date: targetDate, meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 }, grupos: [] };
-        dict[targetDate].notaCoach = noteData.nota || noteData.note || "";
+        dict[targetDate].notaCoach = String(noteData.nota || noteData.note || "");
+        newVal = JSON.stringify(dict);
+      } else if (update.action === "append_coach_note" && stateKey === "plano") {
+        // Append only to daily coach note (focused update)
+        let noteData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
+        const targetDate = update.targetDate || noteData.date || new Date().toLocaleDateString("pt-BR");
+
+        let dict = {};
+        if (prevDocs.plano) {
+          try {
+            const old = JSON.parse(prevDocs.plano);
+            if (old.grupos && old.date) { dict[old.date] = old; } else { dict = old; }
+          } catch {}
+        }
+        if (!dict[targetDate]) dict[targetDate] = { date: targetDate, meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 }, grupos: [] };
+        const prevNote = String(dict[targetDate].notaCoach || "");
+        const appendNote = String(noteData.nota || noteData.note || "").trim();
+        const separator = prevNote && appendNote ? "\n" : "";
+        dict[targetDate].notaCoach = `${prevNote}${separator}${appendNote}`.trim();
         newVal = JSON.stringify(dict);
       }
 

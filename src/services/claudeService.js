@@ -1,48 +1,7 @@
 import { post } from "./api.js";
+import { buildResponseSchemaForInteraction } from "./claudeSchema.js";
 
 const INTERACTION_CONTEXT_TIMEZONE = "America/Sao_Paulo";
-
-const RESPONSE_SCHEMA = {
-  type: "object",
-  properties: {
-    reply: { type: "string" },
-    updates: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          file: {
-            type: "string",
-            enum: ["micro", "memoria", "historico", "plano", "progresso", "calorias", "treinos"],
-          },
-          action: {
-            type: "string",
-            enum: [
-              "append", 
-              "replace_all", 
-              "add_progresso", 
-              "append_item", 
-              "patch_item", 
-              "delete_item", 
-              "append_micro", 
-              "patch_micro", 
-              "update_calorias_day", 
-              "log_treino_day", 
-              "patch_coach_note"
-            ],
-          },
-          content: { type: "string" },
-          requiresPermission: { type: "boolean" },
-          permissionMessage: { type: "string" },
-        },
-        required: ["file", "action", "content", "requiresPermission", "permissionMessage"],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ["reply", "updates"],
-  additionalProperties: false,
-};
 
 function parseGmtOffsetToIso(offsetLabel) {
   const match = /^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/.exec(offsetLabel || "");
@@ -223,6 +182,7 @@ function normalizeMessages(messages) {
  */
 export async function sendMessage(messages, systemInstructions, systemContext, interactionMeta = {}) {
   const normalizedMessages = normalizeMessages(messages);
+  const responseSchema = buildResponseSchemaForInteraction(interactionMeta);
 
   // Add a contextual assistant message on every interaction (time + dynamic app context).
   // This keeps runtime context close to the user turn and makes future context additions easy.
@@ -238,7 +198,7 @@ export async function sendMessage(messages, systemInstructions, systemContext, i
     output_config: {
       format: {
         type: "json_schema",
-        schema: RESPONSE_SCHEMA,
+        schema: responseSchema,
       },
     },
   };

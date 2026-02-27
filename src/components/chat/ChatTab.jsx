@@ -8,10 +8,83 @@ import {
   isClaudeResponseParseError,
   parseClaudeStructuredResponse,
 } from "../../services/claudeResponseParser.js";
+import { lockPlanUpdateToDate } from "../../utils/planUpdateGuard.js";
+import { enforcePlanUserCheckedPermission } from "../../utils/planPermissionGuard.js";
 import ChatMsg from "./ChatMsg.jsx";
 import PermCard from "./PermCard.jsx";
 
 import { useDocs } from "../../contexts/DocsContext.jsx";
+
+function normalizePromptCard(prompt, fallback = {}) {
+  const detailsRaw = Array.isArray(prompt?.details) ? prompt.details : (Array.isArray(fallback.details) ? fallback.details : []);
+  const details = detailsRaw
+    .filter((line) => typeof line === "string")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return {
+    title: String(prompt?.title || fallback.title || "Confirmação necessária"),
+    message: String(prompt?.message || fallback.message || "Posso aplicar esta alteração?"),
+    approveLabel: String(prompt?.approveLabel || fallback.approveLabel || "✓ Sim, aplicar"),
+    rejectLabel: String(prompt?.rejectLabel || fallback.rejectLabel || "Não"),
+    details,
+    approvedFeedback: String(prompt?.approvedFeedback || fallback.approvedFeedback || "✓ Alterações aplicadas."),
+    rejectedFeedback: String(prompt?.rejectedFeedback || fallback.rejectedFeedback || "Ok, mantive como estava."),
+  };
+}
+
+function buildDefaultPromptFromEntries(entries) {
+  const lockedEntries = entries.filter((entry) => entry?.info?.reason === "locked_user_checked_item");
+  if (lockedEntries.length > 0) {
+    const details = lockedEntries
+      .map((entry) => entry?.info?.detail)
+      .filter((line) => typeof line === "string" && line.trim());
+
+    return normalizePromptCard(
+      entries[0]?.update?.permissionPrompt,
+      {
+        title: "Alterar itens já concluídos por você?",
+        message: "Esses itens estão marcados como realizados por você. Confirmar alteração/remoção?",
+        approveLabel: "Sim, alterar itens",
+        rejectLabel: "Não, manter",
+        details,
+        approvedFeedback: "✓ Alterações nos itens concluídos foram aplicadas.",
+        rejectedFeedback: "Perfeito, mantive os itens concluídos sem alterações.",
+      }
+    );
+  }
+
+  const firstMessage = String(entries[0]?.update?.permissionMessage || "Posso aplicar esta alteração?");
+  return normalizePromptCard(
+    entries[0]?.update?.permissionPrompt,
+    {
+      message: firstMessage,
+      details: [],
+    }
+  );
+}
+
+function buildPermissionGroups(permissionEntries) {
+  if (!Array.isArray(permissionEntries) || permissionEntries.length === 0) return [];
+
+  const groups = new Map();
+  permissionEntries.forEach((entry, index) => {
+    const explicitGroup = typeof entry?.update?.permissionGroupId === "string" ? entry.update.permissionGroupId.trim() : "";
+    const fallbackByReason = entry?.info?.reason === "locked_user_checked_item"
+      ? `locked_user_checked_item:${entry?.info?.targetDate || "sem_data"}`
+      : `single:${index}`;
+    const groupKey = explicitGroup || fallbackByReason;
+
+    if (!groups.has(groupKey)) groups.set(groupKey, []);
+    groups.get(groupKey).push(entry);
+  });
+
+  return Array.from(groups.values()).map((entries, index) => ({
+    id: `${Date.now()}-${Math.random()}-${index}`,
+    updates: entries.map((entry) => entry.update),
+    prompt: buildDefaultPromptFromEntries(entries),
+  }));
+}
 
 export default function ChatTab({
   docs,
@@ -39,6 +112,9 @@ export default function ChatTab({
   const isPlanConversation = conversationMeta?.type === "plan";
   const planLoadingLabel = generating && isPlanConversation
     ? (conversationMeta?.originAction === "new_plan" ? "Gerando novo plano..." : "Gerando plano do dia...")
+    : null;
+  const planDateLock = isPlanConversation
+    ? (conversationMeta?.planDate || planoDate || new Date().toLocaleDateString("pt-BR"))
     : null;
   const contextBadgeIcon = readOnly
     ? "🕘"
@@ -84,9 +160,15 @@ export default function ChatTab({
       );
       const parsed = parseClaudeStructuredResponse(data);
       const updates = parsed.updates || [];
+      const preparedEntries = updates
+        .map((u) => lockPlanUpdateToDate(u, planDateLock, docs.plano, { allowPlanReplaceAll: false }))
+        .filter(Boolean)
+        .map((u) => enforcePlanUserCheckedPermission(u, docs.plano));
 
-      const direct = updates.filter(u => !u.requiresPermission);
-      const perms = updates.filter(u => u.requiresPermission);
+      const direct = preparedEntries
+        .filter((entry) => !entry.update?.requiresPermission)
+        .map((entry) => entry.update);
+      const perms = preparedEntries.filter((entry) => entry.update?.requiresPermission);
 
       // Apply direct updates and capture before/after revisions
       const appliedUpdates = [];
@@ -96,7 +178,7 @@ export default function ChatTab({
       }
 
       if (perms.length > 0) {
-        setPPerms(prev => [...prev, ...perms.map(u => ({ id: Date.now() + Math.random(), update: u }))]);
+        setPPerms((prev) => [...prev, ...buildPermissionGroups(perms)]);
       }
 
       const aiMsg = { role: "assistant", content: parsed.reply || "...", appliedUpdates };
@@ -118,11 +200,16 @@ export default function ChatTab({
     if (!perm) return;
     setPPerms(prev => prev.filter(p => p.id !== permId));
     if (approved) {
-      const revision = await applyUpdate(perm.update);
-      const appliedUpdates = revision ? [revision] : [];
-      setMessages(prev => [...prev, { role: "assistant", content: "✓ Perfil atualizado.", appliedUpdates }]);
+      const appliedUpdates = [];
+      for (const update of (perm.updates || [])) {
+        const revision = await applyUpdate({ ...update, permissionApproved: true });
+        if (revision) appliedUpdates.push(revision);
+      }
+      const feedback = perm.prompt?.approvedFeedback || "✓ Alterações aplicadas.";
+      setMessages(prev => [...prev, { role: "assistant", content: feedback, appliedUpdates }]);
     } else {
-      setMessages(prev => [...prev, { role: "assistant", content: "Ok, mantive como estava." }]);
+      const feedback = perm.prompt?.rejectedFeedback || "Ok, mantive como estava.";
+      setMessages(prev => [...prev, { role: "assistant", content: feedback }]);
     }
   }
 
@@ -131,7 +218,14 @@ export default function ChatTab({
     if (!msg?.appliedUpdates?.[revisionIndex]) return;
     const rev = msg.appliedUpdates[revisionIndex];
     // Revert = apply replace_all with the "before" content
-    await applyUpdate({ file: rev.file, action: "replace_all", content: rev.before });
+    const revertUpdate = lockPlanUpdateToDate(
+      { file: rev.file, action: "replace_all", content: rev.before },
+      planDateLock,
+      docs.plano,
+      { allowPlanReplaceAll: true }
+    );
+    if (!revertUpdate) return;
+    await applyUpdate(revertUpdate);
     // Mark revision as reverted in the message
     setMessages(prev => prev.map((m, i) => {
       if (i !== msgIndex) return m;
@@ -142,6 +236,7 @@ export default function ChatTab({
   }
 
   const quickActions = ["Como foi minha semana?", "Lanche da tarde ideal 🍎", "Estou na TPM 😩", "O que jantar hoje?"];
+  const showWelcome = docsReady && messages.length === 0 && !generating && !isPlanConversation;
 
   return (
     <div className="pt-chat">
@@ -168,7 +263,7 @@ export default function ChatTab({
           </div>
         )}
 
-        {docsReady && messages.length === 0 && (
+        {showWelcome && (
           <div className="pt-chat__welcome">
             <div className="pt-chat__welcome-avatar">🌿</div>
             <h3 className="pt-chat__welcome-heading">Olá!</h3>
@@ -208,7 +303,7 @@ export default function ChatTab({
         )}
 
         {pendingPerms.map(p => (
-          <PermCard key={p.id} msg={p.update.permissionMessage} onYes={() => handlePerm(p.id, true)} onNo={() => handlePerm(p.id, false)} />
+          <PermCard key={p.id} prompt={p.prompt} onYes={() => handlePerm(p.id, true)} onNo={() => handlePerm(p.id, false)} />
         ))}
 
         <div ref={bottomRef} />
