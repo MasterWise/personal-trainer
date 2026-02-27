@@ -1,4 +1,4 @@
-const CACHE_NAME = "pt-coach-v1";
+const CACHE_NAME = "pt-coach-v2";
 const STATIC_ASSETS = ["/pt/", "/pt/index.html"];
 
 self.addEventListener("install", (event) => {

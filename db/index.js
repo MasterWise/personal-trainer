@@ -62,6 +62,11 @@ runMigrations();
 
 // -- Prepared Statements --
 
+const CONVERSATION_SELECT_COLUMNS = `
+  id, user_id, messages, preview, message_count, is_current, created_at,
+  conversation_type, plan_date, plan_version, plan_thread_key, origin_action, updated_at
+`;
+
 const stmts = {
   // Users
   getUserById: db.prepare("SELECT * FROM users WHERE id = ?"),
@@ -96,20 +101,55 @@ const stmts = {
   `),
 
   // Conversations
-  getCurrent: db.prepare("SELECT * FROM conversations WHERE user_id = ? AND is_current = 1"),
+  getCurrent: db.prepare(`SELECT ${CONVERSATION_SELECT_COLUMNS} FROM conversations WHERE user_id = ? AND is_current = 1 LIMIT 1`),
+  getConversationById: db.prepare(`SELECT ${CONVERSATION_SELECT_COLUMNS} FROM conversations WHERE id = ? AND user_id = ? LIMIT 1`),
   saveCurrent: db.prepare(`
-    INSERT INTO conversations (id, user_id, messages, preview, message_count, is_current, created_at)
-    VALUES (?, ?, ?, ?, ?, 1, ?)
+    INSERT INTO conversations (
+      id, user_id, messages, preview, message_count, is_current, created_at,
+      conversation_type, plan_date, plan_version, plan_thread_key, origin_action, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       messages = excluded.messages,
       preview = excluded.preview,
-      message_count = excluded.message_count
+      message_count = excluded.message_count,
+      is_current = 1,
+      conversation_type = excluded.conversation_type,
+      plan_date = excluded.plan_date,
+      plan_version = excluded.plan_version,
+      plan_thread_key = excluded.plan_thread_key,
+      origin_action = excluded.origin_action,
+      updated_at = excluded.updated_at
   `),
   listArchived: db.prepare(
-    "SELECT id, user_id, preview, message_count, created_at FROM conversations WHERE user_id = ? AND is_current = 0 ORDER BY created_at DESC"
+    `SELECT ${CONVERSATION_SELECT_COLUMNS} FROM conversations
+     WHERE user_id = ? AND is_current = 0 AND COALESCE(conversation_type, 'general') = 'general'
+     ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC`
   ),
   archiveCurrent: db.prepare(
     "UPDATE conversations SET is_current = 0 WHERE user_id = ? AND is_current = 1"
+  ),
+  clearCurrentForUser: db.prepare("UPDATE conversations SET is_current = 0 WHERE user_id = ? AND is_current = 1"),
+  activateConversation: db.prepare(`
+    UPDATE conversations
+    SET is_current = 1,
+        updated_at = ?
+    WHERE id = ? AND user_id = ?
+  `),
+  getLatestPlanConversationByDate: db.prepare(
+    `SELECT ${CONVERSATION_SELECT_COLUMNS} FROM conversations
+     WHERE user_id = ?
+       AND COALESCE(conversation_type, 'general') = 'plan'
+       AND plan_date = ?
+     ORDER BY COALESCE(plan_version, 0) DESC, COALESCE(updated_at, created_at) DESC, created_at DESC
+     LIMIT 1`
+  ),
+  listPlanHistoryByDate: db.prepare(
+    `SELECT ${CONVERSATION_SELECT_COLUMNS} FROM conversations
+     WHERE user_id = ?
+       AND COALESCE(conversation_type, 'general') = 'plan'
+       AND plan_date = ?
+     ORDER BY COALESCE(plan_version, 0) DESC, COALESCE(updated_at, created_at) DESC, created_at DESC`
   ),
   deleteConvo: db.prepare("DELETE FROM conversations WHERE id = ? AND user_id = ?"),
 

@@ -3,7 +3,7 @@ import { useAuth } from "./contexts/AuthContext.jsx";
 import { useDocs } from "./contexts/DocsContext.jsx";
 import { useTheme } from "./contexts/ThemeContext.jsx";
 import { get, put, post, del } from "./services/api.js";
-import { buildSystemInstructions, buildSystemContext } from "./data/prompts.js";
+import { buildRelevantPlanContext, buildSystemInstructions, buildSystemContext } from "./data/prompts.js";
 import { sendMessage } from "./services/claudeService.js";
 import {
   getClaudeResponseUserMessage,
@@ -110,6 +110,76 @@ function LoadingScreen() {
   );
 }
 
+const DEFAULT_CONVO_META = {
+  type: "general",
+  planDate: null,
+  planVersion: null,
+  planThreadKey: null,
+  originAction: null,
+};
+
+function normalizeConvoMeta(meta) {
+  if (!meta || typeof meta !== "object") return DEFAULT_CONVO_META;
+  return {
+    type: meta.type === "plan" ? "plan" : "general",
+    planDate: typeof meta.planDate === "string" ? meta.planDate : null,
+    planVersion: Number.isInteger(meta.planVersion) ? meta.planVersion : null,
+    planThreadKey: typeof meta.planThreadKey === "string" ? meta.planThreadKey : null,
+    originAction: typeof meta.originAction === "string" ? meta.originAction : null,
+  };
+}
+
+function formatPlanActionDateLabel(dateStr) {
+  const [d, m, y] = String(dateStr || "").split("/");
+  if (!d || !m || !y) return dateStr || "";
+  const dt = new Date(`${y}-${m}-${d}T12:00:00`);
+  return dt.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
+}
+
+function getAutoPlanApiInstruction({ action, planDate }) {
+  const targetLabel = formatPlanActionDateLabel(planDate);
+  if (action === "new_plan") {
+    return `Ação automática do app: gere uma NOVA versão completa do plano para ${targetLabel} (${planDate}), usando o contexto fornecido em <action_context>, <plan_context> e <memory_context>.`;
+  }
+  return `Ação automática do app: gere o plano completo do dia para ${targetLabel} (${planDate}), usando o contexto fornecido em <action_context>, <plan_context> e <memory_context>.`;
+}
+
+function getChatPlaceholder(meta, readOnly, generating) {
+  if (readOnly) return "Visualizando versão histórica (somente leitura)";
+  if (generating && meta?.type === "plan") {
+    return meta?.originAction === "new_plan" ? "Gerando novo plano..." : "Gerando plano do dia...";
+  }
+  if (meta?.type === "plan") return "O que você gostaria de mudar no plano?";
+  return "Escreva aqui... (Enter envia)";
+}
+
+function getChatContextBadge(meta, readOnly, generating) {
+  if (meta?.type !== "plan" || !meta.planDate) return null;
+  const versionLabel = meta.planVersion ? ` · v${meta.planVersion}` : "";
+  if (readOnly) return `Versão histórica do plano ${meta.planDate}${versionLabel}`;
+  if (generating) {
+    if (meta.originAction === "new_plan") return `Gerando novo plano ${meta.planDate}${versionLabel}`;
+    if (meta.originAction === "generate_plan") return `Gerando plano ${meta.planDate}${versionLabel}`;
+  }
+  if (meta.originAction === "edit_plan") return `Editando plano ${meta.planDate}${versionLabel}`;
+  return `Plano ${meta.planDate}${versionLabel}`;
+}
+
+function hasPlanoForDate(planoStr, dateStr) {
+  try {
+    const parsed = JSON.parse(planoStr || "{}");
+    if (parsed && parsed.grupos) {
+      const oldDate = parsed.date || dateStr;
+      return oldDate === dateStr && Array.isArray(parsed.grupos) && parsed.grupos.length > 0;
+    }
+    if (!parsed || typeof parsed !== "object") return false;
+    const plan = parsed[dateStr];
+    return !!(plan && Array.isArray(plan.grupos) && plan.grupos.length > 0);
+  } catch {
+    return false;
+  }
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    APP
 ══════════════════════════════════════════════════════════════════════════ */
@@ -119,9 +189,16 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("chat");
   const [planoDate, setPlanoDate] = useState(new Date().toLocaleDateString("pt-BR"));
   const [messages, setMessages] = useState([]);
+  const [currentConvoId, setCurrentConvoId] = useState(null);
+  const [currentConvoMeta, setCurrentConvoMeta] = useState(DEFAULT_CONVO_META);
+  const [chatReadOnly, setChatReadOnly] = useState(false);
   const [convos, setConvos] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showPlanHistory, setShowPlanHistory] = useState(false);
+  const [planHistoryItems, setPlanHistoryItems] = useState([]);
+  const [planHistoryLoading, setPlanHistoryLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [removingPlan, setRemovingPlan] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const prevMsgsLen = useRef(0);
 
@@ -153,13 +230,17 @@ export default function App() {
         ]);
         if (cancelled) return;
         setMessages(currentRes.messages || []);
+        setCurrentConvoId(currentRes.id || null);
+        setCurrentConvoMeta(normalizeConvoMeta(currentRes));
+        setChatReadOnly(currentRes?.type === "plan" && currentRes?.isLatestPlanVersion === false);
         const archived = Array.isArray(archiveRes) ? archiveRes : [];
         setConvos(archived.map(c => ({
           id: c.id,
-          date: c.created_at,
+          date: c.createdAt || c.created_at,
           preview: c.preview,
-          count: c.message_count,
-          messages: JSON.parse(c.messages || "[]"),
+          count: c.messageCount ?? c.message_count ?? 0,
+          messages: Array.isArray(c.messages) ? c.messages : [],
+          meta: normalizeConvoMeta(c),
         })));
       } catch { /* ignore */ }
     }
@@ -171,32 +252,157 @@ export default function App() {
   useEffect(() => {
     if (!isAuthenticated || messages.length === 0) return;
     const timer = setTimeout(() => {
-      put("/conversations/current", { messages: messages.slice(-60) }).catch(() => {});
+      put("/conversations/current", {
+        messages: messages.slice(-60),
+        meta: currentConvoMeta,
+      }).then((res) => {
+        if (res?.id) setCurrentConvoId(res.id);
+      }).catch(() => {});
     }, 500);
     return () => clearTimeout(timer);
-  }, [messages, isAuthenticated]);
+  }, [messages, isAuthenticated, currentConvoMeta]);
+
+  function applyCurrentConversation(conversation, options = {}) {
+    const convo = conversation || null;
+    const meta = normalizeConvoMeta(convo || {});
+    setCurrentConvoId(convo?.id || null);
+    setCurrentConvoMeta(meta);
+    setMessages(Array.isArray(convo?.messages) ? convo.messages : []);
+    setChatReadOnly(Boolean(options.readOnly));
+    if (options.closeHistory !== false) setShowHistory(false);
+    if (options.closePlanHistory !== false) setShowPlanHistory(false);
+    if (options.switchToChat !== false) setActiveTab("chat");
+  }
+
+  async function refreshGeneralConvos() {
+    try {
+      const archiveRes = await get("/conversations");
+      const archived = Array.isArray(archiveRes) ? archiveRes : [];
+      setConvos(archived.map(c => ({
+        id: c.id,
+        date: c.createdAt || c.created_at,
+        preview: c.preview,
+        count: c.messageCount ?? c.message_count ?? 0,
+        messages: Array.isArray(c.messages) ? c.messages : [],
+        meta: normalizeConvoMeta(c),
+      })));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function archiveCurrentConversationIfNeeded() {
+    if (!currentConvoId && messages.length === 0) return;
+    try {
+      await post("/conversations/archive", {});
+    } catch {
+      /* ignore */
+    }
+    await refreshGeneralConvos();
+  }
+
+  async function activateConversation(conversationId, options = {}) {
+    const res = await post("/conversations/activate", { id: conversationId });
+    applyCurrentConversation(res.conversation, {
+      readOnly: options.readOnly ?? (res.isLatestPlanVersion === false),
+      closeHistory: options.closeHistory,
+      closePlanHistory: options.closePlanHistory,
+      switchToChat: options.switchToChat,
+    });
+    await refreshGeneralConvos();
+    return res;
+  }
+
+  function getLlmContextOptionsForConversation(meta) {
+    const normalized = normalizeConvoMeta(meta);
+    return normalized.type === "plan"
+      ? {
+          conversationType: "plan",
+          planDate: normalized.planDate || planoDate,
+          planVersion: normalized.planVersion,
+          originAction: normalized.originAction,
+        }
+      : {
+          conversationType: "general",
+          planDate: null,
+          planVersion: null,
+          originAction: null,
+        };
+  }
+
+  async function requestClaudeForMessages(currentMsgs, convoMetaForRequest, options = {}) {
+    const contextOpts = getLlmContextOptionsForConversation(convoMetaForRequest);
+    const apiMsgs = currentMsgs.slice(-40).map(m => ({ role: m.role, content: m.content }));
+    const apiOnlyUserInstruction = typeof options.apiOnlyUserInstruction === "string"
+      ? options.apiOnlyUserInstruction.trim()
+      : "";
+    if (apiOnlyUserInstruction) {
+      apiMsgs.push({ role: "user", content: apiOnlyUserInstruction });
+    }
+    const now = new Date();
+    const today = now.toLocaleDateString("pt-BR");
+    const weekday = now.toLocaleDateString("pt-BR", { weekday: "long" });
+    const timeStr = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const instructionPlanDate = contextOpts.conversationType === "plan" ? (contextOpts.planDate || planoDate) : today;
+    let nomePerfil = "Renata";
+    try { nomePerfil = JSON.parse(docs.perfil || "{}").nome || "Renata"; } catch { /* ignore */ }
+
+    const planContext = buildRelevantPlanContext(docs, contextOpts);
+    const data = await sendMessage(
+      apiMsgs,
+      buildSystemInstructions(nomePerfil, today, weekday, timeStr, instructionPlanDate),
+      buildSystemContext(docs, contextOpts),
+      {
+        ...contextOpts,
+        planContext,
+        autoAction: options.autoAction || null,
+      }
+    );
+    const parsed = parseClaudeStructuredResponse(data);
+
+    const appliedUpdates = [];
+    for (const u of (parsed.updates || []).filter(u => !u.requiresPermission)) {
+      const revision = await applyUpdate(u);
+      if (revision) appliedUpdates.push(revision);
+    }
+
+    return {
+      aiMsg: { role: "assistant", content: parsed.reply || "...", appliedUpdates },
+      parsed,
+    };
+  }
+
+  async function loadPlanHistory(date = planoDate) {
+    setPlanHistoryLoading(true);
+    try {
+      const res = await get(`/conversations/plan/history?date=${encodeURIComponent(date)}`);
+      setPlanHistoryItems(Array.isArray(res?.items) ? res.items : []);
+      setShowPlanHistory(true);
+    } catch (e) {
+      console.error("loadPlanHistory:", e);
+      setPlanHistoryItems([]);
+      setShowPlanHistory(true);
+    } finally {
+      setPlanHistoryLoading(false);
+    }
+  }
 
   async function startNewConvo() {
-    if (messages.length === 0) return;
-    try { await post("/conversations/archive", {}); } catch { /* ignore */ }
-    const archived = messages.length > 0 ? {
-      id: Date.now(),
-      date: new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
-      preview: (messages.find(m => m.role === "user")?.content || "Conversa").slice(0, 120),
-      count: messages.length,
-      messages: messages.slice(-60),
-    } : null;
-    if (archived) setConvos(prev => [...prev, archived]);
+    if (!currentConvoId && messages.length === 0) return;
+    await archiveCurrentConversationIfNeeded();
     setMessages([]);
+    setCurrentConvoId(null);
+    setCurrentConvoMeta(DEFAULT_CONVO_META);
+    setChatReadOnly(false);
     setActiveTab("chat");
   }
 
   async function loadConvo(c) {
-    if (messages.length > 0) await startNewConvo();
-    setMessages(c.messages || []);
-    setConvos(prev => prev.filter(x => x.id !== c.id));
-    setShowHistory(false);
-    setActiveTab("chat");
+    if (!c?.id) return;
+    if (currentConvoId && currentConvoId !== c.id) {
+      await archiveCurrentConversationIfNeeded();
+    }
+    await activateConversation(c.id, { readOnly: false, closeHistory: true, closePlanHistory: false, switchToChat: true });
   }
 
   async function deleteConvo(id) {
@@ -204,52 +410,145 @@ export default function App() {
     setConvos(prev => prev.filter(c => c.id !== id));
   }
 
-  async function generatePlan() {
+  async function openPlanVersion(conversationId, isLatestVersion) {
+    if (!conversationId) return;
+    if (currentConvoId && currentConvoId !== conversationId) {
+      await archiveCurrentConversationIfNeeded();
+    }
+    await activateConversation(conversationId, {
+      readOnly: !isLatestVersion,
+      closeHistory: true,
+      closePlanHistory: true,
+      switchToChat: true,
+    });
+  }
+
+  async function editPlanConversation() {
+    if (generating) return;
+    setActiveTab("chat");
+
+    try {
+      const latestRes = await get(`/conversations/plan/latest?date=${encodeURIComponent(planoDate)}`);
+      if (latestRes?.exists && latestRes.conversation) {
+        if (currentConvoId && currentConvoId !== latestRes.conversation.id) {
+          await archiveCurrentConversationIfNeeded();
+        }
+        if (currentConvoId !== latestRes.conversation.id) {
+          await activateConversation(latestRes.conversation.id, {
+            readOnly: false,
+            closeHistory: true,
+            closePlanHistory: true,
+            switchToChat: true,
+          });
+        } else {
+          setChatReadOnly(false);
+        }
+      } else {
+        if (currentConvoId || messages.length > 0) {
+          await archiveCurrentConversationIfNeeded();
+        }
+        const startRes = await post("/conversations/plan/start", { planDate: planoDate, mode: "edit" });
+        applyCurrentConversation(startRes.conversation, { readOnly: false, switchToChat: true });
+      }
+    } catch (e) {
+      console.error("editPlanConversation:", e);
+      setMessages(prev => [...prev, { role: "assistant", content: "Erro ao abrir conversa de edição do plano." }]);
+    }
+  }
+
+  async function createPlanConversation(action) {
     if (generating) return;
     setGenerating(true);
     setActiveTab("chat");
-    
-    const parts = planoDate.split("/");
-    const dt = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
-    const dtFormatted = dt.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
-    
-    const triggerMsg = {
-      role: "user",
-      content: `[AÇÃO: GERAR PLANO DO DIA]\nData Selecionada no App: ${dtFormatted} (${planoDate})\n\nGere um plano alimentar personalizado para a data correspondente (${planoDate}). Analise meu histórico recente para variar os alimentos (evitar repetição), compensar metas calóricas se necessário, e focar no que deve ser feito nesse dia específico.`,
-    };
-    const newMsgs = [...messages, triggerMsg];
-    setMessages(newMsgs);
 
     try {
-      const apiMsgs = newMsgs.slice(-40).map(m => ({ role: m.role, content: m.content }));
-      const today = new Date().toLocaleDateString("pt-BR");
-      const weekday = new Date().toLocaleDateString("pt-BR", { weekday: "long" });
-      const timeStr = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-      let nomePerfil = "Renata";
-      try { nomePerfil = JSON.parse(docs.perfil || "{}").nome || "Renata"; } catch { /* ignore */ }
-      const data = await sendMessage(
-        apiMsgs,
-        buildSystemInstructions(nomePerfil, today, weekday, timeStr, planoDate),
-        buildSystemContext(docs, planoDate)
-      );
-      const parsed = parseClaudeStructuredResponse(data);
+      if (currentConvoId || messages.length > 0) {
+        await archiveCurrentConversationIfNeeded();
+      }
 
-      const appliedUpdates = [];
-      for (const u of (parsed.updates || []).filter(u => !u.requiresPermission)) {
-        const revision = await applyUpdate(u);
-        if (revision) appliedUpdates.push(revision);
+      const shouldBehaveAsNewPlan = action === "generate" && !hasPlanoForDate(docs.plano, planoDate);
+      const resolvedAction = (action === "new_plan" || shouldBehaveAsNewPlan) ? "new_plan" : "generate";
+      const mode = resolvedAction === "new_plan" ? "new_plan" : "generate";
+      const startRes = await post("/conversations/plan/start", { planDate: planoDate, mode });
+      applyCurrentConversation(startRes.conversation, { readOnly: false, switchToChat: true });
+
+      const convoMeta = normalizeConvoMeta(startRes.conversation);
+      const newMsgs = [...(startRes.conversation?.messages || [])];
+      setMessages(newMsgs);
+
+      try {
+        const { aiMsg } = await requestClaudeForMessages(newMsgs, {
+          ...convoMeta,
+          type: "plan",
+          planDate: planoDate,
+          originAction: resolvedAction === "new_plan" ? "new_plan" : "generate_plan",
+        }, {
+          autoAction: resolvedAction === "new_plan" ? "new_plan" : "generate_plan",
+          apiOnlyUserInstruction: getAutoPlanApiInstruction({
+            action: resolvedAction === "new_plan" ? "new_plan" : "generate",
+            planDate: planoDate,
+          }),
+        });
+        setMessages(prev => [...prev, aiMsg]);
+      } catch (e) {
+        if (isClaudeResponseParseError(e)) {
+          console.error("generatePlan parse error:", e.code, e.meta, e);
+        } else {
+          console.error("generatePlan:", e);
+        }
+        setMessages(prev => [...prev, { role: "assistant", content: `Erro ao gerar plano: ${getClaudeResponseUserMessage(e)}` }]);
       }
-      const aiMsg = { role: "assistant", content: parsed.reply || "...", appliedUpdates };
-      setMessages(prev => [...prev, aiMsg]);
     } catch (e) {
-      if (isClaudeResponseParseError(e)) {
-        console.error("generatePlan parse error:", e.code, e.meta, e);
-      } else {
-        console.error("generatePlan:", e);
-      }
-      setMessages(prev => [...prev, { role: "assistant", content: `Erro ao gerar plano: ${getClaudeResponseUserMessage(e)}` }]);
+      console.error("createPlanConversation:", e);
+      const msg = e?.message?.includes("Já existe conversa de plano")
+        ? "Já existe uma conversa de plano para essa data. Use Editar plano ou Novo plano."
+        : "Erro ao iniciar conversa de plano.";
+      setMessages(prev => [...prev, { role: "assistant", content: msg }]);
+    } finally {
+      setGenerating(false);
     }
-    setGenerating(false);
+  }
+
+  async function generatePlan() {
+    await createPlanConversation("generate");
+  }
+
+  async function generateNewPlanVersion() {
+    await createPlanConversation("new_plan");
+  }
+
+  async function removePlanForSelectedDate() {
+    if (removingPlan) return false;
+    setRemovingPlan(true);
+    try {
+      let planoDict = {};
+      try {
+        const parsed = JSON.parse(docs.plano || "{}");
+        if (parsed && parsed.grupos) {
+          const oldDate = parsed.date || planoDate;
+          planoDict = { [oldDate]: parsed };
+        } else if (parsed && typeof parsed === "object") {
+          planoDict = parsed;
+        }
+      } catch {
+        planoDict = {};
+      }
+
+      if (!planoDict?.[planoDate]) {
+        return false;
+      }
+
+      delete planoDict[planoDate];
+      const nextPlano = JSON.stringify(planoDict);
+      setDocs(prev => ({ ...prev, plano: nextPlano }));
+      await saveDoc("plano", nextPlano);
+      return true;
+    } catch (e) {
+      console.error("removePlanForSelectedDate:", e);
+      return false;
+    } finally {
+      setRemovingPlan(false);
+    }
   }
 
 
@@ -363,9 +662,43 @@ export default function App() {
     return (
       <>
         <div style={{ display: activeTab === "chat" ? "block" : "none", height: "100%", width: "100%" }}>
-          <ChatTab docs={docs} setDocs={setDocs} messages={messages} setMessages={setMessages} docsReady={docsReady} setTab={setActiveTab} onGeneratePlan={generatePlan} generating={generating} planoDate={planoDate} />
+          <ChatTab
+            docs={docs}
+            setDocs={setDocs}
+            messages={messages}
+            setMessages={setMessages}
+            docsReady={docsReady}
+            setTab={setActiveTab}
+            onGeneratePlan={generatePlan}
+            generating={generating}
+            planoDate={planoDate}
+            conversationMeta={currentConvoMeta}
+            readOnly={chatReadOnly}
+            inputPlaceholder={getChatPlaceholder(currentConvoMeta, chatReadOnly, generating)}
+            contextBadge={getChatContextBadge(currentConvoMeta, chatReadOnly, generating)}
+          />
         </div>
-        {activeTab === "plano" && <PlanoView planoDictStr={docs.plano} cal={docs.cal} onGeneratePlan={generatePlan} generating={generating} onToggleItem={handleToggleItem} selectedDate={planoDate} setSelectedDate={setPlanoDate} />}
+        {activeTab === "plano" && (
+          <PlanoView
+            planoDictStr={docs.plano}
+            cal={docs.cal}
+            onGeneratePlan={generatePlan}
+            onEditPlan={editPlanConversation}
+            onNewPlan={generateNewPlanVersion}
+            onRemovePlan={removePlanForSelectedDate}
+            removingPlan={removingPlan}
+            onOpenPlanHistory={() => loadPlanHistory(planoDate)}
+            planHistoryOpen={showPlanHistory}
+            setPlanHistoryOpen={setShowPlanHistory}
+            planHistoryItems={planHistoryItems}
+            planHistoryLoading={planHistoryLoading}
+            onOpenPlanVersion={openPlanVersion}
+            generating={generating}
+            onToggleItem={handleToggleItem}
+            selectedDate={planoDate}
+            setSelectedDate={setPlanoDate}
+          />
+        )}
         {activeTab === "saude" && <SaudeView cal={docs.cal} treinos={docs.treinos} />}
         {activeTab === "progresso" && <ProgressoView progresso={docs.progresso} />}
         {activeTab === "caderno" && <CadernoView hist={docs.hist} mem={docs.mem} macro={docs.macro} micro={docs.micro} />}
@@ -383,9 +716,7 @@ export default function App() {
       </div>
       <TabBar tab={activeTab} setTab={setActiveTab} unreadCount={unreadCount} />
       {showHistory && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 200, maxWidth: "385px", margin: "0 auto", display: "flex", flexDirection: "column" }}>
-          <ConvoDrawerReal convos={convos} onLoad={loadConvo} onDelete={deleteConvo} onClose={() => setShowHistory(false)} />
-        </div>
+        <ConvoDrawerReal convos={convos} onLoad={loadConvo} onDelete={deleteConvo} onClose={() => setShowHistory(false)} />
       )}
     </div>
   );

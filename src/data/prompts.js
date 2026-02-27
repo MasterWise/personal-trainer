@@ -41,7 +41,7 @@ Toda conversa segue este ciclo:
 4. DESAFIAR — Proponha metas de curto prazo realizáveis.
 5. CELEBRAR — Reconheça avanços e registre progresso.
 
-COMANDO PRIORITÁRIO: Se o sistema enviar "[AÇÃO: GERAR PLANO DO DIA]", você é OBRIGADA a gerar um update para o arquivo 'plano' (action: replace_all), sem exceções. Não argumente que o dia já acabou ou que o plano já está concluído.
+COMANDO PRIORITÁRIO: Se o sistema enviar "[AÇÃO: GERAR PLANO DO DIA]" OU se existir um <action_context> com kind "generate_plan" ou "new_plan", você é OBRIGADA a gerar um update para o arquivo 'plano' (action: replace_all), sem exceções. Não argumente que o dia já acabou ou que o plano já está concluído.
 
 NÍVEIS DE CONCESSÃO:
 - Nível 1 (doce, lanche fora do plano): beber 500ml de água + esperar 15min → se ainda quiser, libere escape planejado (tâmara, leite condensado, chiclete).
@@ -170,13 +170,114 @@ Se não houver interação clara, retorne: {"reply": "...", "updates": []}
 // ══════════════════════════════════════════════════════════════════
 //  PART 2 — SYSTEM CONTEXT
 //  Dinâmico. Vai como primeira mensagem { role: "assistant" }.
-//  Contém todos os dados do usuário estruturados em XML.
-//  Segue a recomendação da Anthropic: dados longos antes das queries.
+//  Contém os dados do usuário estruturados em XML.
+//  Regra crítica: envia o plano-alvo + janela de contexto (até 30 planos
+//  anteriores e 30 futuros), sem despejar a coleção inteira.
 // ══════════════════════════════════════════════════════════════════
 
-export function buildSystemContext(docs, planoDate) {
+const PLAN_CONTEXT_WINDOW = 30;
+
+function parsePlanoDict(planoStr, fallbackDate) {
+  if (!planoStr) return {};
+  try {
+    const parsed = JSON.parse(planoStr);
+    if (parsed && parsed.grupos) {
+      const dateKey = parsed.date || fallbackDate || new Date().toLocaleDateString("pt-BR");
+      return { [dateKey]: parsed };
+    }
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function parseDateBRToNumber(dateStr) {
+  if (typeof dateStr !== "string") return null;
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dateStr.trim());
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(year, month - 1, day, 12, 0, 0, 0);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return date.getTime();
+}
+
+function getSortedPlanEntries(planoDict) {
+  if (!planoDict || typeof planoDict !== "object") return [];
+  return Object.entries(planoDict)
+    .map(([date, plan]) => ({ date, plan, ts: parseDateBRToNumber(date) }))
+    .filter((entry) => entry.ts !== null && entry.plan && typeof entry.plan === "object")
+    .sort((a, b) => a.ts - b.ts);
+}
+
+function serializePlanWindowEntries(entries) {
+  return entries.map((entry) => ({
+    date: entry.date,
+    plan: entry.plan,
+  }));
+}
+
+function normalizeContextOptions(planoDateOrOptions) {
+  if (planoDateOrOptions && typeof planoDateOrOptions === "object" && !Array.isArray(planoDateOrOptions)) {
+    return {
+      conversationType: planoDateOrOptions.conversationType === "plan" ? "plan" : "general",
+      planDate: typeof planoDateOrOptions.planDate === "string" ? planoDateOrOptions.planDate : null,
+      planVersion: Number.isInteger(planoDateOrOptions.planVersion) ? planoDateOrOptions.planVersion : null,
+      originAction: typeof planoDateOrOptions.originAction === "string" ? planoDateOrOptions.originAction : null,
+    };
+  }
+
+  return {
+    conversationType: "general",
+    planDate: typeof planoDateOrOptions === "string" ? planoDateOrOptions : null,
+    planVersion: null,
+    originAction: null,
+  };
+}
+
+export function buildRelevantPlanContext(docs, planoDateOrOptions) {
   const today = new Date().toLocaleDateString("pt-BR");
-  const targetDate = planoDate || today;
+  const opts = normalizeContextOptions(planoDateOrOptions);
+  const isPlanConversation = opts.conversationType === "plan";
+  const targetDate = isPlanConversation ? (opts.planDate || today) : today;
+  const planoDict = parsePlanoDict(docs?.plano || "{}", targetDate);
+  const sortedEntries = getSortedPlanEntries(planoDict);
+  const targetTs = parseDateBRToNumber(targetDate);
+  const plan = planoDict?.[targetDate] || null;
+
+  const pastEntries = targetTs === null
+    ? []
+    : sortedEntries.filter((entry) => entry.ts < targetTs).slice(-PLAN_CONTEXT_WINDOW);
+  const futureEntries = targetTs === null
+    ? []
+    : sortedEntries.filter((entry) => entry.ts > targetTs).slice(0, PLAN_CONTEXT_WINDOW);
+
+  return {
+    scope: isPlanConversation ? "target_date" : "today",
+    date: targetDate,
+    status: plan ? "exists" : "missing",
+    content: plan,
+    pastPlans: serializePlanWindowEntries(pastEntries),
+    futurePlans: serializePlanWindowEntries(futureEntries),
+    pastPlansCount: pastEntries.length,
+    futurePlansCount: futureEntries.length,
+    conversationType: opts.conversationType,
+    planVersion: opts.planVersion,
+    originAction: opts.originAction,
+  };
+}
+
+export function buildSystemContext(docs, planoDateOrOptions) {
+  const today = new Date().toLocaleDateString("pt-BR");
+  const relevantPlan = buildRelevantPlanContext(docs, planoDateOrOptions);
+  const targetDate = relevantPlan.date || today;
 
   let progressoText = docs.progresso;
   try { progressoText = JSON.stringify(JSON.parse(docs.progresso), null, 2); } catch { /* keep as-is */ }
@@ -260,14 +361,16 @@ ${docs.mem || "(vazio)"}
   </document>
 
   <document id="plano_atual">
-${(() => {
-  const p = docs.plano || "{}";
-  try {
-    const dict = JSON.parse(p);
-    return dict[targetDate] ? JSON.stringify(dict[targetDate], null, 2) : "{}";
-  } catch { return p; }
-})()}
+${relevantPlan.content ? JSON.stringify(relevantPlan.content, null, 2) : "{}"}
   </document>
+
+  <plans_context_window>
+    <reference_date>${targetDate}</reference_date>
+    <past_plans_count>${relevantPlan.pastPlansCount || 0}</past_plans_count>
+    <future_plans_count>${relevantPlan.futurePlansCount || 0}</future_plans_count>
+    <past_plans_json>${JSON.stringify(relevantPlan.pastPlans || [], null, 2)}</past_plans_json>
+    <future_plans_json>${JSON.stringify(relevantPlan.futurePlans || [], null, 2)}</future_plans_json>
+  </plans_context_window>
 
   <document id="historico">
 ${docs.hist || "(vazio)"}

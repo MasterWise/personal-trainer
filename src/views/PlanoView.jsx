@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../contexts/ThemeContext.jsx";
 import MD from "../components/ui/MD.jsx";
 
@@ -207,9 +208,28 @@ function GrupoCard({ grupo, onToggle, theme }) {
   );
 }
 
-export default function PlanoView({ planoDictStr, cal, onGeneratePlan, generating, onToggleItem, selectedDate, setSelectedDate }) {
+export default function PlanoView({
+  planoDictStr,
+  cal,
+  onGeneratePlan,
+  onEditPlan,
+  onNewPlan,
+  onRemovePlan,
+  removingPlan = false,
+  onOpenPlanHistory,
+  planHistoryOpen,
+  setPlanHistoryOpen,
+  planHistoryItems = [],
+  planHistoryLoading = false,
+  onOpenPlanVersion,
+  generating,
+  onToggleItem,
+  selectedDate,
+  setSelectedDate,
+}) {
   const { theme } = useTheme();
   const c = theme.colors;
+  const [showRemoveModal, setShowRemoveModal] = useState(false);
 
   // Parse plano dict (handles both old flat and new dict formats)
   let planoDict = {};
@@ -245,6 +265,11 @@ export default function PlanoView({ planoDictStr, cal, onGeneratePlan, generatin
           selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
           onGeneratePlan={onGeneratePlan}
+          onEditPlan={onEditPlan}
+          onNewPlan={onNewPlan}
+          onRequestRemovePlan={() => setShowRemoveModal(true)}
+          removingPlan={removingPlan}
+          onOpenPlanHistory={onOpenPlanHistory}
           generating={generating}
           totalDone={totalDone}
           totalItens={totalItens}
@@ -273,15 +298,267 @@ export default function PlanoView({ planoDictStr, cal, onGeneratePlan, generatin
           </div>
         )}
       </div>
+
+      <PlanHistoryDrawer
+        theme={theme}
+        open={!!planHistoryOpen}
+        onClose={() => setPlanHistoryOpen?.(false)}
+        items={planHistoryItems}
+        loading={planHistoryLoading}
+        selectedDate={selectedDate}
+        onOpenVersion={onOpenPlanVersion}
+      />
+
+      <ConfirmRemovePlanModal
+        theme={theme}
+        open={showRemoveModal}
+        date={selectedDate}
+        loading={removingPlan}
+        onClose={() => setShowRemoveModal(false)}
+        onConfirm={async () => {
+          const removed = await onRemovePlan?.();
+          if (removed !== false) {
+            setShowRemoveModal(false);
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+function PlanHistoryDrawer({ theme, open, onClose, items, loading, selectedDate, onOpenVersion }) {
+  const c = theme.colors;
+  if (!open) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: "50%",
+        transform: "translateX(-50%)",
+        top: "calc(var(--pt-header-height) + 8px)",
+        width: "min(100%, var(--pt-app-max-width))",
+        padding: "0 8px",
+        zIndex: 1250,
+      }}
+    >
+      <div style={{
+        background: c.surface,
+        borderRadius: "16px",
+        border: `1px solid ${c.border}`,
+        maxHeight: "calc(100vh - var(--pt-header-height) - var(--pt-bottom-nav-height) - 16px)",
+        display: "flex",
+        flexDirection: "column",
+        boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
+      }}>
+        <div style={{ padding: "12px 14px 8px", borderBottom: `1px solid ${c.border}` }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+            <div>
+              <h3 style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "16px", fontWeight: "700" }}>Histórico de versões</h3>
+              <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "11px", marginTop: "2px" }}>
+                Plano de {selectedDate}
+              </p>
+            </div>
+            <button onClick={onClose} style={{ width: "32px", height: "32px", borderRadius: "50%", border: `1px solid ${c.border}`, background: c.bg, cursor: "pointer", fontSize: "14px" }}>✕</button>
+          </div>
+        </div>
+        <div style={{ padding: "12px 14px 16px", overflowY: "auto" }}>
+          {loading && (
+            <div style={{ textAlign: "center", padding: "18px 8px", color: c.textMuted, fontFamily: theme.font, fontSize: "12px" }}>
+              Carregando versões...
+            </div>
+          )}
+
+          {!loading && items.length === 0 && (
+            <div style={{ textAlign: "center", padding: "28px 12px", color: c.textMuted }}>
+              <div style={{ fontSize: "28px", marginBottom: "8px", opacity: 0.5 }}>🗂️</div>
+              <p style={{ fontFamily: theme.font, fontSize: "12px" }}>Nenhuma conversa de plano salva para essa data.</p>
+            </div>
+          )}
+
+          {!loading && items.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => onOpenVersion?.(item.id, !!item.isLatestVersion)}
+              style={{
+                width: "100%",
+                textAlign: "left",
+                border: `1px solid ${c.border}`,
+                background: c.bg,
+                borderRadius: "14px",
+                padding: "10px 12px",
+                marginBottom: "8px",
+                cursor: "pointer",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                  <span style={{ fontFamily: theme.font, color: c.text, fontSize: "12px", fontWeight: "700" }}>
+                    v{item.planVersion || "?"}
+                  </span>
+                  {item.isLatestVersion && (
+                    <span style={{ fontFamily: theme.font, color: "#5A9A5A", background: "#5A9A5A18", borderRadius: "999px", fontSize: "10px", fontWeight: "700", padding: "2px 7px" }}>
+                      Atual
+                    </span>
+                  )}
+                  {!item.isLatestVersion && (
+                    <span style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "10px" }}>
+                      Somente leitura
+                    </span>
+                  )}
+                </div>
+                <span style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "10px", whiteSpace: "nowrap" }}>
+                  {new Date(item.createdAt || Date.now()).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </div>
+              <p style={{ fontFamily: theme.font, color: c.textSecondary, fontSize: "12px", lineHeight: "1.4", marginBottom: "4px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                {item.preview || "Sem mensagem inicial ainda."}
+              </p>
+              <span style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "10px" }}>
+                {item.messageCount || 0} msg{(item.messageCount || 0) !== 1 ? "s" : ""}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmRemovePlanModal({ theme, open, date, loading, onClose, onConfirm }) {
+  const c = theme.colors;
+  if (!open) return null;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 1300, maxWidth: "385px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "22px" }}>
+      <div onClick={loading ? undefined : onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.38)", cursor: loading ? "wait" : "pointer" }} />
+      <div style={{ position: "relative", width: "100%", background: c.surface, borderRadius: "16px", border: `1px solid ${c.border}`, boxShadow: "0 16px 36px rgba(0,0,0,0.24)", padding: "16px 14px" }}>
+        <h3 style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "16px", fontWeight: "700", marginBottom: "8px" }}>
+          Remover plano do dia?
+        </h3>
+        <p style={{ fontFamily: theme.font, color: c.textSecondary, fontSize: "12px", lineHeight: "1.45", marginBottom: "14px" }}>
+          Você está prestes a remover o plano de <b>{date}</b>. Essa ação não pode ser desfeita automaticamente.
+        </p>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+          <button
+            onClick={onClose}
+            disabled={loading}
+            style={{ padding: "8px 10px", borderRadius: "10px", border: `1px solid ${c.border}`, background: c.bg, color: c.text, fontFamily: theme.font, fontSize: "12px", fontWeight: "600", cursor: loading ? "not-allowed" : "pointer" }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            style={{ padding: "8px 11px", borderRadius: "10px", border: "none", background: loading ? "#C36E6E99" : "#C36E6E", color: "#FFF", fontFamily: theme.font, fontSize: "12px", fontWeight: "700", cursor: loading ? "not-allowed" : "pointer" }}
+          >
+            {loading ? "Removendo..." : "Remover plano"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlanActionSplitButton({ theme, hasPlano, generating, removingPlan, onGeneratePlan, onEditPlan, onNewPlan, onRequestRemovePlan, onOpenPlanHistory }) {
+  const c = theme.colors;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  const busy = generating || removingPlan;
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onDocClick = (event) => {
+      if (!menuRef.current?.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [menuOpen]);
+
+  if (!hasPlano) {
+    return (
+      <div ref={menuRef} style={{ position: "relative", display: "flex", alignItems: "stretch", borderRadius: "10px", boxShadow: `0 2px 8px ${c.primary}25` }}>
+        <button
+          onClick={onGeneratePlan}
+          disabled={busy}
+          style={{ padding: "8px 11px 8px 12px", background: busy ? `${c.primaryLight}80` : c.primary, color: "#FFF", border: "none", borderRadius: "10px 0 0 10px", fontFamily: theme.font, fontSize: "12px", fontWeight: "700", cursor: busy ? "not-allowed" : "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: "5px" }}
+        >
+          {generating ? <><span style={{ display: "inline-block", animation: "bounce 1s infinite", fontSize: "13px" }}>🌿</span> Gerando...</> : "✨ Gerar plano"}
+        </button>
+        <button
+          onClick={() => setMenuOpen(v => !v)}
+          disabled={busy}
+          aria-label="Mais ações do plano"
+          style={{ width: "34px", background: busy ? `${c.primaryLight}80` : c.primary, color: "#FFF", border: "none", borderLeft: "1px solid rgba(255,255,255,0.2)", borderRadius: "0 10px 10px 0", cursor: busy ? "not-allowed" : "pointer", fontSize: "12px", fontWeight: "700" }}
+        >
+          ▾
+        </button>
+
+        {menuOpen && (
+          <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, minWidth: "174px", background: c.surface, border: `1px solid ${c.border}`, borderRadius: "12px", boxShadow: "0 10px 24px rgba(0,0,0,0.15)", padding: "6px", zIndex: 40 }}>
+            <button
+              onClick={() => { setMenuOpen(false); onOpenPlanHistory?.(); }}
+              style={{ width: "100%", textAlign: "left", border: "none", background: "transparent", padding: "9px 10px", borderRadius: "8px", cursor: "pointer", fontFamily: theme.font, fontSize: "12px", color: c.text }}
+            >
+              🕘 Histórico de versões
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={menuRef} style={{ position: "relative", display: "flex", alignItems: "stretch", borderRadius: "10px", boxShadow: `0 2px 8px ${c.primary}25` }}>
+      <button
+        onClick={onEditPlan}
+        disabled={busy}
+        style={{ padding: "8px 11px 8px 12px", background: busy ? `${c.primaryLight}80` : c.primary, color: "#FFF", border: "none", borderRadius: "10px 0 0 10px", fontFamily: theme.font, fontSize: "12px", fontWeight: "700", cursor: busy ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}
+      >
+        ✏️ Editar plano
+      </button>
+      <button
+        onClick={() => setMenuOpen(v => !v)}
+        disabled={busy}
+        aria-label="Mais ações do plano"
+        style={{ width: "34px", background: busy ? `${c.primaryLight}80` : c.primary, color: "#FFF", border: "none", borderLeft: "1px solid rgba(255,255,255,0.2)", borderRadius: "0 10px 10px 0", cursor: busy ? "not-allowed" : "pointer", fontSize: "12px", fontWeight: "700" }}
+      >
+        ▾
+      </button>
+
+      {menuOpen && (
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, minWidth: "174px", background: c.surface, border: `1px solid ${c.border}`, borderRadius: "12px", boxShadow: "0 10px 24px rgba(0,0,0,0.15)", padding: "6px", zIndex: 40 }}>
+          <button
+            onClick={() => { setMenuOpen(false); onNewPlan?.(); }}
+            style={{ width: "100%", textAlign: "left", border: "none", background: "transparent", padding: "9px 10px", borderRadius: "8px", cursor: "pointer", fontFamily: theme.font, fontSize: "12px", color: c.text }}
+          >
+            ✨ Novo plano
+          </button>
+          <button
+            onClick={() => { setMenuOpen(false); onOpenPlanHistory?.(); }}
+            style={{ width: "100%", textAlign: "left", border: "none", background: "transparent", padding: "9px 10px", borderRadius: "8px", cursor: "pointer", fontFamily: theme.font, fontSize: "12px", color: c.text }}
+          >
+            🕘 Histórico de versões
+          </button>
+          <button
+            onClick={() => { setMenuOpen(false); onRequestRemovePlan?.(); }}
+            style={{ width: "100%", textAlign: "left", border: "none", background: "transparent", padding: "9px 10px", borderRadius: "8px", cursor: "pointer", fontFamily: theme.font, fontSize: "12px", color: "#C36E6E", fontWeight: "700" }}
+          >
+            🗑 Remover plano
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ──────────────────────────────────────────────────────────────────
-   PlanHeader — Mini-week strip + title + generate button
+   PlanHeader — Mini-week strip + title + actions
    Consistent height regardless of plan state
    ────────────────────────────────────────────────────────────────── */
-function PlanHeader({ theme, planoDict, selectedDate, setSelectedDate, onGeneratePlan, generating, totalDone, totalItens, hasPlano }) {
+function PlanHeader({ theme, planoDict, selectedDate, setSelectedDate, onGeneratePlan, onEditPlan, onNewPlan, onRequestRemovePlan, removingPlan, onOpenPlanHistory, generating, totalDone, totalItens, hasPlano }) {
   const c = theme.colors;
   const DAY_LETTERS = ["D", "S", "T", "Q", "Q", "S", "S"];
   const todayStr = toDateBR(new Date());
@@ -333,7 +610,7 @@ function PlanHeader({ theme, planoDict, selectedDate, setSelectedDate, onGenerat
   const formattedSelected = parseDateBR(selectedDate).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
 
   return (
-    <div style={{ background: `linear-gradient(135deg,${c.primaryLight}20,${c.primary}15)`, borderBottom: `1px solid ${c.primary}30`, padding: "10px 12px 8px", overflow: "hidden" }}>
+    <div style={{ background: `linear-gradient(135deg,${c.primaryLight}20,${c.primary}15)`, borderBottom: `1px solid ${c.primary}30`, padding: "10px 12px 8px", overflow: "visible", position: "relative", zIndex: 15 }}>
 
       {/* Week label + back to today */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
@@ -402,10 +679,17 @@ function PlanHeader({ theme, planoDict, selectedDate, setSelectedDate, onGenerat
             {formattedSelected}{!hasProgress && <span style={{ color: c.textMuted, marginLeft: "6px" }}>· sem plano</span>}
           </p>
         </div>
-        <button onClick={onGeneratePlan} disabled={generating}
-          style={{ padding: "8px 14px", background: generating ? `${c.primaryLight}80` : c.primary, color: "#FFF", border: "none", borderRadius: "10px", fontFamily: theme.font, fontSize: "12px", fontWeight: "700", cursor: generating ? "not-allowed" : "pointer", whiteSpace: "nowrap", flexShrink: 0, display: "flex", alignItems: "center", gap: "5px", boxShadow: `0 2px 8px ${c.primary}35` }}>
-          {generating ? <><span style={{ display: "inline-block", animation: "bounce 1s infinite", fontSize: "13px" }}>🌿</span> Gerando...</> : "✨ Gerar plano"}
-        </button>
+        <PlanActionSplitButton
+          theme={theme}
+          hasPlano={hasPlano}
+          generating={generating}
+          removingPlan={removingPlan}
+          onGeneratePlan={onGeneratePlan}
+          onEditPlan={onEditPlan}
+          onNewPlan={onNewPlan}
+          onRequestRemovePlan={onRequestRemovePlan}
+          onOpenPlanHistory={onOpenPlanHistory}
+        />
       </div>
     </div>
   );
