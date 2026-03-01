@@ -47,13 +47,7 @@ function getParseMeta(payload, contentBlocks) {
 
 function getOutputJsonValue(block) {
   if (!block || typeof block !== "object") return undefined;
-
-  if (block.json !== undefined) return block.json;
-  if (block.data !== undefined) return block.data;
-  if (block.value !== undefined) return block.value;
-  if (block.output !== undefined) return block.output;
-
-  return undefined;
+  return block.json;
 }
 
 function findStructuredSource(contentBlocks) {
