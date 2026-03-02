@@ -181,12 +181,14 @@ function normalizeMessages(messages) {
  * Model, max_tokens, thinking, and effort are all configured server-side via env vars.
  */
 export async function sendMessage(messages, systemInstructions, systemContext, interactionMeta = {}) {
+  // _sessionId enables CLI provider session resume (avoids re-sending full history each turn).
+  const { _sessionId, ...restMeta } = interactionMeta;
   const normalizedMessages = normalizeMessages(messages);
-  const responseSchema = buildResponseSchemaForInteraction(interactionMeta);
+  const responseSchema = buildResponseSchemaForInteraction(restMeta);
 
   // Add a contextual assistant message on every interaction (time + dynamic app context).
   // This keeps runtime context close to the user turn and makes future context additions easy.
-  const interactionContextText = buildInteractionContextText(systemContext, interactionMeta);
+  const interactionContextText = buildInteractionContextText(systemContext, restMeta);
   const fullMessages = [
     { role: "assistant", content: [{ type: "text", text: interactionContextText }] },
     ...normalizedMessages,
@@ -203,6 +205,7 @@ export async function sendMessage(messages, systemInstructions, systemContext, i
     },
   };
 
+  if (_sessionId) payload._sessionId = _sessionId;
   if (systemInstructions) payload.system = systemInstructions;
 
   return post("/claude", payload);

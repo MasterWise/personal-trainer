@@ -107,6 +107,7 @@ export default function ChatTab({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [pendingPerms, setPPerms] = useState([]);
+  const [sessionId] = useState(() => crypto.randomUUID());
   const bottomRef = useRef(null);
   const taRef = useRef(null);
   const isPlanConversation = conversationMeta?.type === "plan";
@@ -156,6 +157,7 @@ export default function ChatTab({
         {
           ...normalizedMeta,
           planContext,
+          _sessionId: sessionId,
         }
       );
       const parsed = parseClaudeStructuredResponse(data);

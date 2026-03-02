@@ -357,6 +357,7 @@ export default function App() {
         ...contextOpts,
         planContext,
         autoAction: options.autoAction || null,
+        _sessionId: currentConvoId ? String(currentConvoId) : undefined,
       }
     );
     const parsed = parseClaudeStructuredResponse(data);
