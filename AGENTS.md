@@ -14,7 +14,7 @@ App de coaching pessoal com IA (Claude) para acompanhamento nutricional e de tre
 - **Frontend**: React 18.3 JSX (sem TypeScript, sem React Router)
 - **Build**: Vite 6.x (base `/pt/`)
 - **DB**: SQLite via `node:sqlite` (DatabaseSync)
-- **IA**: Claude Sonnet 4 via backend proxy (`/api/claude`) com structured outputs (JSON schema enforced)
+- **IA**: Claude Sonnet 4 via ai-gateway centralizado (`/api/claude` → `ai-gateway:3500/api/chat`) com structured outputs (JSON schema enforced)
 - **Testes**: Vitest + Supertest
 - **PWA**: manifest.json + service worker
 
@@ -48,7 +48,7 @@ db/
 routes/
   health.js            → GET /api/health
   auth.js              → Setup, login, logout, me
-  claude.js            → Proxy para Anthropic API
+  claude.js            → Proxy para ai-gateway (chamadas Claude centralizadas)
   documents.js         → CRUD de documentos do usuário
   conversations.js     → Gerenciamento de conversas (current + archived)
 ```
@@ -227,7 +227,7 @@ O documento `plano` usa formato JSON estruturado com checkboxes interativos:
 |---|---|
 | Inline styles + CSS classes | Compatibilidade com tema dinâmico + CSS variables |
 | window.storage abstraction | Permite fallback localStorage quando offline |
-| Backend proxy para Claude | Proteger API key, rate limiting, logging |
+| Backend proxy via ai-gateway | Centralizar chamadas Claude, multi-provider, proteger API key |
 | Extended thinking habilitado | Melhor qualidade de resposta para coaching |
 | Structured outputs (json_schema) | Garante JSON válido sem parsing manual |
 | Plano como JSON interativo | Checkboxes, nutri, auto-sync cal/treinos |
@@ -262,12 +262,14 @@ O documento `plano` usa formato JSON estruturado com checkboxes interativos:
 - Em 27/02/2026 o structured output da IA passou a usar schema dinâmico por interação (`src/services/claudeSchema.js`, consumido por `src/services/claudeService.js`): em conversas de plano, `planScopeDate` e `updates[*].targetDate` tornam-se obrigatórios e fixos na data-alvo (enum de valor único), reforçando “uma data por vez” para alterações de plano. Cobertura adicionada em `tests/services/claude-schema.test.js`.
 - Em 27/02/2026 foi adicionado `append_coach_note` para atualizações focadas de nota diária no plano (`src/contexts/DocsContext.jsx`, `src/services/claudeSchema.js`, `src/data/prompts.js`). O guard de plano (`src/utils/planUpdateGuard.js`) também passou a converter `replace_all` em `patch_coach_note`/`append_coach_note` quando detectar que a única mudança foi em `notaCoach`, evitando reescrita completa desnecessária do plano.
 - Em 27/02/2026 o `replace_all` para `file="plano"` foi bloqueado nas conversas de chat/edição (schema + runtime guard) e mantido apenas para ações automáticas de geração (`autoAction: generate_plan/new_plan`). Isso reduz reescritas completas acidentais durante ajustes finos, preservando a geração inicial de plano.
+- Em 28/02/2026 a rota `routes/claude.js` foi migrada de chamada direta à Anthropic API para proxy via ai-gateway centralizado (`AI_GATEWAY_URL`, padrão `http://localhost:3500`). O payload envia `app: "personal-trainer"` e converte `output_config.format.schema` para `output_schema`. Variáveis `ANTHROPIC_API_KEY` e `CLAUDE_*` foram removidas; agora usa apenas `AI_GATEWAY_URL` e `GATEWAY_TIMEOUT_MS` (padrão 180s). Erros de conexão retornam 502, timeout retorna 504.
 - Em 27/02/2026 os cards de revisão do chat passaram a exibir diff real de trecho alterado (`src/components/chat/UpdateCard.jsx` + `src/utils/revisionDiff.js`): para `append`, mostra apenas o conteúdo adicionado; para demais ações, mostra somente a janela alterada (com contexto colapsado). Cobertura em `tests/services/revision-diff.test.js`.
 - Em 27/02/2026 o diff dos cards de revisão foi refinado para JSON: antes de comparar, o app normaliza payloads JSON (parse + ordenação estável + pretty print), eliminando trechos com escape e tornando visível apenas o campo realmente alterado em updates de plano/memória (`src/utils/revisionDiff.js`).
 - Em 27/02/2026 foi implementado controle de ownership de itens marcados no plano: updates da IA (`append_item`, `patch_item`, `delete_item`, `replace_all`) agora só podem mutar item `checked` quando `checked_source="ai"` (`src/utils/planItemOwnership.js`, `src/contexts/DocsContext.jsx`), enquanto interações do usuário no checkbox passam a gravar `checked_source="user"` ao marcar (`src/App.jsx`).
 - Em 27/02/2026, mutações de IA em itens `checked` pelo usuário passaram a exigir aprovação explícita no chat: updates `patch_item`/`delete_item` nesses itens são convertidos para fluxo de permissão com card estruturado (title/message/details/botões), suporte a agrupamento por `permissionGroupId` e aplicação local dos updates aprovados sem nova chamada à LLM (`src/utils/planPermissionGuard.js`, `src/components/chat/ChatTab.jsx`, `src/components/chat/PermCard.jsx`, `src/services/claudeSchema.js`, `src/data/prompts.js`).
 - Em 27/02/2026 os cards de revisão do chat passaram a consolidar alterações repetidas por arquivo (`file`) em um único card por mensagem, mesmo quando houver múltiplas actions (ex.: `patch_item` + `append_item` no `plano`), com contador e diff por item dentro do card; o botão de reversão reverte o grupo em ordem reversa para manter consistência de snapshots (`src/utils/groupRevisions.js`, `src/components/chat/ChatMsg.jsx`, `src/components/chat/UpdateCard.jsx`, `tests/services/group-revisions.test.js`).
 - Em 27/02/2026 os subtítulos dos cards de revisão deixaram de expor nomes técnicos de ações internas (`update_calorias_day`, `patch_item`, etc.): `UpdateCard` passou a mapear todas as actions para rótulos amigáveis em PT-BR e usar fallback genérico “Atualizado” (`src/components/chat/UpdateCard.jsx`).
+- Em 01/03/2026 foi corrigido o mecanismo de sessão nativa dos CLI bridges no ai-gateway (`isResume`). O bug: `App.jsx` usava `currentConvoId` (começa `null` em novas conversas) como `_sessionId` → turno 1 sem `_sessionId` → sessão armazenada sob UUID aleatório → turno 2 com `_sessionId = “42”` (ID do DB) não encontrava a sessão → `isResume = false` sempre → contexto completo (plan + docs, ~43KB) re-enviado a cada turno. Correção: `cliSessionIdRef = useRef(crypto.randomUUID())` em `App.jsx` — UUID estável gerado no mount, independente de `currentConvoId`; resetado em `applyCurrentConversation` e `startNewConvo` (quando muda de conversa). Turno 1 envia `_sessionId = “uuid-estavel”` → sessão armazenada sob esse UUID → turno 2 encontra → `isResume = true` → `_light_context` (~200 bytes) em vez de ~43KB. Também foi removido o throw de `SessionExpiredError` dos bridges (quando sessão não encontrada, processa como primeiro turno e armazena sob `_sessionId` original → próximo turno retoma) e o retry de 410 de `routes/claude.js`. Redução esperada: turno 2+ de ~80K para ~35K input tokens (`src/App.jsx`, `routes/claude.js`).
 
 ## Dados Padrão (Seed)
 

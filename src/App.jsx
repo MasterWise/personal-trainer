@@ -202,6 +202,9 @@ export default function App() {
   const [removingPlan, setRemovingPlan] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const prevMsgsLen = useRef(0);
+  // Stable session ID for CLI bridges — independent of currentConvoId (which starts null
+  // for new conversations and would break isResume detection on turn 2).
+  const cliSessionIdRef = useRef(crypto.randomUUID());
 
   useEffect(() => {
     const len = messages.length;
@@ -266,6 +269,7 @@ export default function App() {
   function applyCurrentConversation(conversation, options = {}) {
     const convo = conversation || null;
     const meta = normalizeConvoMeta(convo || {});
+    cliSessionIdRef.current = crypto.randomUUID();
     setCurrentConvoId(convo?.id || null);
     setCurrentConvoMeta(meta);
     setMessages(Array.isArray(convo?.messages) ? convo.messages : []);
@@ -357,7 +361,7 @@ export default function App() {
         ...contextOpts,
         planContext,
         autoAction: options.autoAction || null,
-        _sessionId: currentConvoId ? String(currentConvoId) : undefined,
+        _sessionId: cliSessionIdRef.current,
       }
     );
     const parsed = parseClaudeStructuredResponse(data);
@@ -396,6 +400,7 @@ export default function App() {
   async function startNewConvo() {
     if (!currentConvoId && messages.length === 0) return;
     await archiveCurrentConversationIfNeeded();
+    cliSessionIdRef.current = crypto.randomUUID();
     setMessages([]);
     setCurrentConvoId(null);
     setCurrentConvoMeta(DEFAULT_CONVO_META);
