@@ -151,6 +151,25 @@ function buildInteractionContextText(systemContext, interactionMeta = {}) {
   return `<interaction_context>\n${indentMultiline(sections.join("\n\n"), 2)}\n</interaction_context>`;
 }
 
+/**
+ * Lightweight interaction context for CLI resume turns.
+ * Omits <plan_context> and <memory_context> (plan + docs) because the CLI
+ * session already has that knowledge from turn 1 and the AI's own prior
+ * responses. Only sends runtime (datetime) and conversation metadata.
+ */
+function buildLightInteractionContextText(interactionMeta = {}) {
+  const nowIso = formatNowIsoInTimeZone(new Date(), INTERACTION_CONTEXT_TIMEZONE);
+  const sections = [
+    `<runtime_context>\n  timezone: ${INTERACTION_CONTEXT_TIMEZONE}\n  now: ${nowIso}\n</runtime_context>`,
+    buildConversationContextSection(interactionMeta),
+  ];
+
+  const actionContextSection = buildActionContextSection(interactionMeta);
+  if (actionContextSection) sections.push(actionContextSection);
+
+  return `<interaction_context>\n${indentMultiline(sections.join("\n\n"), 2)}\n</interaction_context>`;
+}
+
 function normalizeMessageContent(content) {
   if (Array.isArray(content)) return content;
 
@@ -188,11 +207,19 @@ export async function sendMessage(messages, systemInstructions, systemContext, i
 
   // Add a contextual assistant message on every interaction (time + dynamic app context).
   // This keeps runtime context close to the user turn and makes future context additions easy.
+  // messages[0] always contains the full context (needed by stateless API providers).
   const interactionContextText = buildInteractionContextText(systemContext, restMeta);
   const fullMessages = [
     { role: "assistant", content: [{ type: "text", text: interactionContextText }] },
     ...normalizedMessages,
   ];
+
+  // _light_context: sent alongside for CLI providers on resume turns.
+  // Contains only runtime (datetime) + conversation metadata — no plan/docs.
+  // The CLI session already knows the plan state from turn 1 and the AI's own
+  // prior responses. Bridges use this instead of messages[0] when isResume=true,
+  // reducing token usage from ~25–40KB to ~200 bytes per resume turn.
+  const lightContextText = buildLightInteractionContextText(restMeta);
 
   const payload = {
     messages: fullMessages,
@@ -203,6 +230,7 @@ export async function sendMessage(messages, systemInstructions, systemContext, i
         schema: responseSchema,
       },
     },
+    _light_context: lightContextText,
   };
 
   if (_sessionId) payload._sessionId = _sessionId;

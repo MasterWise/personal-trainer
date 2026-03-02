@@ -18,7 +18,7 @@ export default function claudeRoutes() {
     const debugMode = req.headers["x-debug-log"] === "true";
 
     try {
-      const { system, messages, output_config, _sessionId } = req.body;
+      const { system, messages, output_config, _sessionId, _light_context } = req.body;
 
       if (!messages || !Array.isArray(messages)) {
         return res.status(400).json({ error: 'Campo "messages" e obrigatorio e deve ser um array' });
@@ -31,6 +31,7 @@ export default function claudeRoutes() {
         messages,
       };
       if (_sessionId) gatewayPayload._sessionId = _sessionId;
+      if (_light_context) gatewayPayload._light_context = _light_context;
 
       // Extract output_schema from output_config (frontend sends output_config format)
       if (output_config?.format?.schema) {
