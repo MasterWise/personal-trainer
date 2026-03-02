@@ -131,9 +131,10 @@ function buildActionContextSection(interactionMeta = {}) {
 }
 
 function buildInteractionContextText(systemContext, interactionMeta = {}) {
-  const nowIso = formatNowIsoInTimeZone(new Date(), INTERACTION_CONTEXT_TIMEZONE);
+  // Note: <runtime_context> (datetime) is intentionally omitted here so that
+  // messages[0] stays stable across turns and can be cached by API providers.
+  // Datetime is injected separately via _light_context on every turn.
   const sections = [
-    `<runtime_context>\n  timezone: ${INTERACTION_CONTEXT_TIMEZONE}\n  now: ${nowIso}\n</runtime_context>`,
     buildConversationContextSection(interactionMeta),
   ];
 

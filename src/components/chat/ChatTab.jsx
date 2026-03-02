@@ -137,9 +137,6 @@ export default function ChatTab({
     try {
       const currentMsgs = [...messages, userMsg];
       const apiMsgs = currentMsgs.slice(-40).map(m => ({ role: m.role, content: m.content }));
-      const today = new Date().toLocaleDateString("pt-BR");
-      const weekday = new Date().toLocaleDateString("pt-BR", { weekday: "long" });
-      const timeStr = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
       let nomePerfil = "Renata";
       try { nomePerfil = JSON.parse(docs.perfil || "{}").nome || "Renata"; } catch { /* ignore */ }
       const normalizedMeta = {
@@ -148,11 +145,11 @@ export default function ChatTab({
         planVersion: Number.isInteger(conversationMeta?.planVersion) ? conversationMeta.planVersion : null,
         originAction: conversationMeta?.originAction || null,
       };
-      const instructionPlanDate = normalizedMeta.conversationType === "plan" ? (normalizedMeta.planDate || today) : today;
+      const instructionPlanDate = normalizedMeta.conversationType === "plan" ? (normalizedMeta.planDate || new Date().toLocaleDateString("pt-BR")) : new Date().toLocaleDateString("pt-BR");
       const planContext = buildRelevantPlanContext(docs, normalizedMeta);
       const data = await sendMessage(
         apiMsgs,
-        buildSystemInstructions(nomePerfil, today, weekday, timeStr, instructionPlanDate),
+        buildSystemInstructions(nomePerfil, instructionPlanDate),
         buildSystemContext(docs, normalizedMeta),
         {
           ...normalizedMeta,

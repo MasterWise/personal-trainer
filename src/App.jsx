@@ -344,18 +344,14 @@ export default function App() {
     if (apiOnlyUserInstruction) {
       apiMsgs.push({ role: "user", content: apiOnlyUserInstruction });
     }
-    const now = new Date();
-    const today = now.toLocaleDateString("pt-BR");
-    const weekday = now.toLocaleDateString("pt-BR", { weekday: "long" });
-    const timeStr = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-    const instructionPlanDate = contextOpts.conversationType === "plan" ? (contextOpts.planDate || planoDate) : today;
+    const instructionPlanDate = contextOpts.conversationType === "plan" ? (contextOpts.planDate || planoDate) : new Date().toLocaleDateString("pt-BR");
     let nomePerfil = "Renata";
     try { nomePerfil = JSON.parse(docs.perfil || "{}").nome || "Renata"; } catch { /* ignore */ }
 
     const planContext = buildRelevantPlanContext(docs, contextOpts);
     const data = await sendMessage(
       apiMsgs,
-      buildSystemInstructions(nomePerfil, today, weekday, timeStr, instructionPlanDate),
+      buildSystemInstructions(nomePerfil, instructionPlanDate),
       buildSystemContext(docs, contextOpts),
       {
         ...contextOpts,
