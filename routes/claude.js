@@ -45,12 +45,30 @@ export default function claudeRoutes() {
 
       const GATEWAY_TIMEOUT_MS = parseInt(process.env.GATEWAY_TIMEOUT_MS || "180000", 10);
 
-      const response = await fetch(`${AI_GATEWAY_URL}/api/chat`, {
+      let response = await fetch(`${AI_GATEWAY_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(gatewayPayload),
         signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS),
       });
+
+      // CLI session expired (gateway restarted or TTL eviction): retry as first turn.
+      // Keep _sessionId so the new session is stored under the original key (next turn
+      // finds it → isResume=true). Add _sessionExpiredRetry to bypass expiry check.
+      if (response.status === 410) {
+        const errData = await response.json().catch(() => ({}));
+        if (errData?.code === "CLI_SESSION_EXPIRED") {
+          console.warn("[claude] CLI session expired, retrying as first turn");
+          delete gatewayPayload._light_context;
+          gatewayPayload._sessionExpiredRetry = true;
+          response = await fetch(`${AI_GATEWAY_URL}/api/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(gatewayPayload),
+            signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS),
+          });
+        }
+      }
 
       const durationMs = Date.now() - startTime;
       const data = await response.json();
