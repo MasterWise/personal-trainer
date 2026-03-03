@@ -409,8 +409,9 @@ export default [
 ### Variáveis de Ambiente (`.env.example`)
 
 ```env
-# API Anthropic (Claude)
-ANTHROPIC_API_KEY=
+# AI Gateway
+AI_GATEWAY_URL=http://localhost:3500
+GATEWAY_TIMEOUT_MS=180000
 
 # Porta do servidor
 PORT=3400
