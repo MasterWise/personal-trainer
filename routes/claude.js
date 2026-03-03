@@ -80,12 +80,13 @@ export default function claudeRoutes() {
             stmts.insertAiLog.run(
               crypto.randomUUID(), req.user.id, new Date().toISOString(),
               system || null, system?.length || 0,
-              JSON.stringify(messages.map(m => ({ role: m.role, content: typeof m.content === "string" ? m.content.slice(0, 500) : "[complex]" }))),
+              JSON.stringify(messages),
               messages.length,
               null, 0, null,
               JSON.stringify(data), null, null, null, 0,
               null, null, null, durationMs,
-              0, data.error || `HTTP ${response.status}`
+              0, data.error || `HTTP ${response.status}`,
+              JSON.stringify(gatewayPayload)
             );
           } catch (e) { console.error("[Debug Log Error]", e); }
         }
@@ -134,7 +135,8 @@ export default function claudeRoutes() {
             replyText, updatesJson, updatesCount,
             usage.input_tokens || null, usage.output_tokens || null,
             (usage.input_tokens || 0) + (usage.output_tokens || 0), durationMs,
-            1, null
+            1, null,
+            JSON.stringify(gatewayPayload)
           );
         } catch (e) { console.error("[Debug Log Error]", e); }
       }
@@ -151,7 +153,8 @@ export default function claudeRoutes() {
             null, 0, null,
             null, null, null, null, 0,
             null, null, null, Date.now() - startTime,
-            0, error.message
+            0, error.message,
+            null
           );
         } catch (e) { console.error("[Debug Log Error]", e); }
       }

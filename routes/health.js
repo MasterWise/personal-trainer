@@ -5,7 +5,7 @@ export default function healthRoutes() {
   router.get("/api/health", (req, res) => {
     res.json({
       status: "ok",
-      hasApiKey: !!process.env.ANTHROPIC_API_KEY,
+      gatewayUrl: process.env.AI_GATEWAY_URL || "http://localhost:3500",
       storage: "sqlite",
       timestamp: new Date().toISOString(),
     });

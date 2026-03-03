@@ -161,8 +161,8 @@ const stmts = {
       model, thinking_enabled, thinking_budget,
       response_raw, response_id, reply_text, updates_json, updates_count,
       input_tokens, output_tokens, total_tokens, duration_ms,
-      success, error_message
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      success, error_message, request_payload
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   listAiLogs: db.prepare(
     "SELECT id, created_at, model, messages_count, updates_count, input_tokens, output_tokens, total_tokens, duration_ms, success, error_message, reply_text FROM ai_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"

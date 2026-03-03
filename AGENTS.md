@@ -75,6 +75,7 @@ src/
   views/
     PlanoView.jsx      → Plano interativo (checkboxes, nutri, auto-sync)
     SaudeView.jsx      → Dashboard calorias + treinos
+    LogsView.jsx       → Debug logs com 3 visoes: Transaction Trace, Chat History Raw, Log Detalhado
     MarcosView.jsx     → Timeline de marcos
     HistView.jsx       → Histórico com stats
   data/
@@ -100,6 +101,7 @@ src/
 | `sessions` | id, user_id, expires_at, created_at |
 | `user_documents` | (user_id, doc_key) PK, content, updated_at |
 | `conversations` | id, user_id, messages (JSON), preview, message_count, is_current |
+| `ai_logs` | id, user_id, created_at, system_prompt, messages_sent, response_raw, request_payload, model, duration_ms, success |
 
 ### Documentos (9 doc_keys)
 
@@ -132,6 +134,11 @@ src/
 
 ### Claude
 - `POST /api/claude` → (auth) `{ model, max_tokens, messages, system, thinking?, output_config? }` → proxy response
+
+### AI Logs
+- `GET /api/ai-logs?limit=N` → (auth) → lista de logs (max 200)
+- `GET /api/ai-logs/:id` → (auth) → log completo (inclui request_payload, messages_sent, response_raw)
+- `DELETE /api/ai-logs` → (auth) → apaga todos os logs do usuario
 
 ### Conversations
 - `GET /api/conversations` → (auth) → archived conversations
@@ -271,6 +278,8 @@ O documento `plano` usa formato JSON estruturado com checkboxes interativos:
 - Em 27/02/2026 os subtítulos dos cards de revisão deixaram de expor nomes técnicos de ações internas (`update_calorias_day`, `patch_item`, etc.): `UpdateCard` passou a mapear todas as actions para rótulos amigáveis em PT-BR e usar fallback genérico “Atualizado” (`src/components/chat/UpdateCard.jsx`).
 - Em 02/03/2026 o system prompt e o `interaction_context` (`messages[0]`) foram tornados estáticos para preservar o cache de provedores. `buildSystemInstructions` em `prompts.js` não recebe mais `today`, `weekday`, `timeStr` — esses dados chegam no `_light_context` enviado a cada turno. `buildInteractionContextText` em `claudeService.js` não inclui mais `<runtime_context>` (datetime) — `messages[0]` agora contém apenas plan+docs+conversation_context, estável durante a sessão. O ai-gateway passou a injetar `_light_context` em todos os provedores: Anthropic usa array de system com `cache_control: ephemeral` no bloco estático + bloco volátil sem cache; OpenAI e Gemini recebem `_light_context` concatenado ao final do system. CLI bridges já eram o comportamento esperado, mas agora o primeiro turno também combina o contexto estático com `_light_context` no canal dinâmico (`--append-system-prompt-file` / `developer_instructions`).
 - Em 01/03/2026 foi corrigido o mecanismo de sessão nativa dos CLI bridges no ai-gateway (`isResume`). O bug: `App.jsx` usava `currentConvoId` (começa `null` em novas conversas) como `_sessionId` → turno 1 sem `_sessionId` → sessão armazenada sob UUID aleatório → turno 2 com `_sessionId = “42”` (ID do DB) não encontrava a sessão → `isResume = false` sempre → contexto completo (plan + docs, ~43KB) re-enviado a cada turno. Correção: `cliSessionIdRef = useRef(crypto.randomUUID())` em `App.jsx` — UUID estável gerado no mount, independente de `currentConvoId`; resetado em `applyCurrentConversation` e `startNewConvo` (quando muda de conversa). Turno 1 envia `_sessionId = “uuid-estavel”` → sessão armazenada sob esse UUID → turno 2 encontra → `isResume = true` → `_light_context` (~200 bytes) em vez de ~43KB. O retry de 410 `CLI_SESSION_EXPIRED` foi mantido mas corrigido: mantém `_sessionId` + adiciona `_sessionExpiredRetry: true` (em vez de deletar `_sessionId`), permitindo que o bridge armazene a sessão renovada sob o mesmo `_sessionId` → próximo turno retoma. Redução esperada: turno 2+ de ~80K para ~35K input tokens (`src/App.jsx`, `routes/claude.js`).
+
+- Em 02/03/2026 a tela de logs (`LogsView.jsx`) foi redesenhada com 3 abas por log: **Transaction Trace** (request/response completo ao ai-gateway, incluindo payload com `_sessionId`, `_light_context`, `messages`, `output_schema`), **Chat History Raw** (array `messages` completo em JSON copiavel, desde `messages[0]` ate a ultima resposta) e **Log Detalhado** (visao original com system prompt, reply, updates, tokens). Foi adicionada coluna `request_payload` na tabela `ai_logs` (migration `004_ai_logs_request_payload.sql`) e o backend passou a salvar o `gatewayPayload` completo em cada log. O `messages_sent` em logs de erro tambem deixou de truncar conteudo (antes limitava a 500 chars por mensagem).
 
 ## Dados Padrão (Seed)
 
