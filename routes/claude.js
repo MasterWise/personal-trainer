@@ -41,7 +41,7 @@ export default function claudeRoutes() {
       // Override gateway app defaults with env vars (request > app config in cascade)
       if (REASONING_EFFORT) gatewayPayload.effort = REASONING_EFFORT;
       if (MAX_INPUT_TOKENS) gatewayPayload.max_input_tokens = MAX_INPUT_TOKENS;
-      if (MAX_OUTPUT_TOKENS) gatewayPayload.max_tokens = MAX_OUTPUT_TOKENS;
+      if (MAX_OUTPUT_TOKENS) gatewayPayload.max_output_tokens = MAX_OUTPUT_TOKENS;
 
       const GATEWAY_TIMEOUT_MS = parseInt(process.env.GATEWAY_TIMEOUT_MS || "180000", 10);
 
