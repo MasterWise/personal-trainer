@@ -133,7 +133,7 @@ function buildActionContextSection(interactionMeta = {}) {
 function buildInteractionContextText(systemContext, interactionMeta = {}) {
   // Note: <runtime_context> (datetime) is intentionally omitted here so that
   // messages[0] stays stable across turns and can be cached by API providers.
-  // Datetime is injected separately via _light_context on every turn.
+  // Datetime is injected separately via interaction_context on every turn.
   const sections = [
     buildConversationContextSection(interactionMeta),
   ];
@@ -215,12 +215,12 @@ export async function sendMessage(messages, systemInstructions, systemContext, i
     ...normalizedMessages,
   ];
 
-  // _light_context: sent alongside for CLI providers on resume turns.
+  // interaction_context: sent alongside for CLI providers on resume turns.
   // Contains only runtime (datetime) + conversation metadata — no plan/docs.
   // The CLI session already knows the plan state from turn 1 and the AI's own
   // prior responses. Bridges use this instead of messages[0] when isResume=true,
   // reducing token usage from ~25–40KB to ~200 bytes per resume turn.
-  const lightContextText = buildLightInteractionContextText(restMeta);
+  const interactionContextText = buildLightInteractionContextText(restMeta);
 
   const payload = {
     messages: fullMessages,
@@ -231,7 +231,7 @@ export async function sendMessage(messages, systemInstructions, systemContext, i
         schema: responseSchema,
       },
     },
-    _light_context: lightContextText,
+    interaction_context: interactionContextText,
   };
 
   if (_sessionId) payload._sessionId = _sessionId;

@@ -37,6 +37,6 @@
 - 2026-02-27 - Mutacoes de IA em itens marcados pelo usuario passaram a exigir aprovacao explicita via card de permissao no chat.
 - 2026-02-27 - Cards de revisao consolidam alteracoes repetidas por arquivo em um unico card por mensagem, com reversao agrupada.
 - 2026-02-27 - Subtitulos dos cards de revisao deixaram de expor nomes tecnicos de actions internas e passaram a usar rotulos amigaveis em PT-BR.
-- 2026-03-02 - System prompt e `interaction_context` foram tornados estaticos para preservar cache de provedores; o ai-gateway passou a injetar `_light_context` dinamico.
+- 2026-03-02 - System prompt e `interaction_context` foram tornados estaticos para preservar cache de provedores; o ai-gateway passou a injetar `interaction_context` dinamico.
 - 2026-03-01 - Mecanismo de sessao nativa dos CLI bridges no ai-gateway foi corrigido com `_sessionId` estavel em `useRef`, reduzindo tokens no turno 2+ e preservando o retry de `CLI_SESSION_EXPIRED`.
 - 2026-03-02 - Tela de logs (`LogsView.jsx`) foi redesenhada com abas `Transaction Trace`, `Chat History Raw` e `Log Detalhado`, e `ai_logs` ganhou `request_payload`.
