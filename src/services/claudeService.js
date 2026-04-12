@@ -220,7 +220,7 @@ export async function sendMessage(messages, systemInstructions, systemContext, i
   // The CLI session already knows the plan state from turn 1 and the AI's own
   // prior responses. Bridges use this instead of messages[0] when isResume=true,
   // reducing token usage from ~25–40KB to ~200 bytes per resume turn.
-  const interactionContextText = buildLightInteractionContextText(restMeta);
+  const lightInteractionContextText = buildLightInteractionContextText(restMeta);
 
   const payload = {
     messages: fullMessages,
@@ -231,7 +231,7 @@ export async function sendMessage(messages, systemInstructions, systemContext, i
         schema: responseSchema,
       },
     },
-    interaction_context: interactionContextText,
+    interaction_context: lightInteractionContextText,
   };
 
   if (_sessionId) payload._sessionId = _sessionId;

@@ -6,6 +6,9 @@
 - Para racional tecnico estavel, consulte [DECISIONS.md](F:/GitProjects/vps-mw-aiserver/projects/github/personal-trainer/DECISIONS.md).
 
 ## Linha do tempo
+- 2026-04-12 - Regressao local em `src/services/claudeService.js` foi corrigida; build, lint, testes e `manage.mjs start` voltaram a passar no fluxo oficial.
+- 2026-04-12 - Cobertura foi ampliada com suites para `routes/documents`, `src/services/claudeService`, `DocsContext` e `PlanoView`, usando `@testing-library/react`, `@testing-library/user-event` e `jsdom`.
+- 2026-04-12 - Documentacao operacional foi alinhada ao estado real do app; push notifications sairam do escopo atual e `web-push`/variaveis VAPID foram removidos por nao haver implementacao ativa.
 - 2026-02-23 - Parser resiliente de respostas Claude no frontend (`src/services/claudeResponseParser.js`), compartilhado entre chat e geracao de plano. Aceita `content.text` e `output_json`, classifica `NO_TEXT_BLOCK` e diferencia JSON truncado por `stop_reason = max_tokens`.
 - 2026-02-23 - Backend passou a logar `stop_reason` e `content_types` das respostas Anthropic; parser de `ai_logs` foi ajustado para entender `output_json`.
 - 2026-02-23 - Mitigacao para `claude-sonnet-4-6`: se structured output vier so com bloco `thinking`, o backend faz um retry sem `thinking`.

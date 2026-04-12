@@ -14,7 +14,6 @@ export default function ChatMsg({ msg, msgIndex, setTab, onRevert }) {
     // Revert in reverse chronological order to keep document snapshots consistent.
     const ordered = [...indexes].sort((a, b) => b - a);
     for (const idx of ordered) {
-      // eslint-disable-next-line no-await-in-loop
       await onRevert(msgIndex, idx);
     }
   }

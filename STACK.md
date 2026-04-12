@@ -1,540 +1,331 @@
-# STACK.md — Personal Trainer
+# STACK.md - Personal Trainer
 
-Stack tecnológica do projeto Personal Trainer. Referência para desenvolvedores e agentes AI.
-Baseada na stack consolidada do ecossistema MasterWise (mesma base: DS-Dashboard).
+Referencia tecnica do projeto Personal Trainer.
+Use este arquivo para entender stack, arquitetura, contratos de execucao e limites do escopo atual.
 
----
+## 1. Visao geral
 
-## 1. Visão Geral
+| Camada | Tecnologia | Observacao |
+|---|---|---|
+| Runtime | Node.js 24+ | ESM obrigatorio |
+| Backend | Express 4 | `app.js` + `server.js` |
+| Frontend | React 18 | JSX puro, sem TypeScript |
+| Build | Vite 6 + plugin React | base path `/pt/` |
+| Banco | SQLite nativo (`node:sqlite`) | migrations SQL e prepared statements |
+| Testes | Vitest + Supertest + Testing Library + jsdom | node por padrao, jsdom para UI/contexto |
+| IA | `ai-gateway` | Claude via proxy, nunca direto do frontend |
 
-| Camada       | Tecnologia                          | Versão   |
-|--------------|--------------------------------------|----------|
-| Runtime      | Node.js (ESM)                       | 24+      |
-| Backend      | Express                              | 4.x      |
-| Frontend     | React (JSX puro, sem TypeScript)     | 18.3     |
-| Build        | Vite + @vitejs/plugin-react          | 6.x      |
-| Banco        | SQLite (`node:sqlite` nativo)        | —        |
-| Testes       | Vitest + Supertest                   | 2.x      |
-| Lint         | ESLint (flat config)                 | 9.x      |
-| IA           | Claude API (Anthropic) via proxy     | —        |
+## 2. Topologia da aplicacao
 
----
+- Backend local: porta `3400` por padrao.
+- Frontend no proxy: `/pt/`.
+- API no proxy: `/api/pt/`.
+- Rewrite interno: `/api/pt/* -> /api/*` em `app.js` para permitir acesso direto sem Caddy.
 
-## 2. Backend
+## 3. Backend
 
-### Entry Points
+### Entry points
 
-- **`server.js`** — Bootstrap HTTP. Importa `createApp()`, escuta na porta definida em `PORT`.
-- **`app.js`** — Factory Express. Exporta `createApp(options)` para testabilidade (desabilita SPA em testes).
+- `server.js`: bootstrap HTTP e `listen(PORT)`.
+- `app.js`: factory `createApp(options)` usada por runtime e testes.
 
-```js
-// server.js
-import { createApp } from "./app.js";
-const PORT = process.env.PORT || 3400;
-const app = await createApp();
-app.listen(PORT);
-```
+### Middleware principal
 
-### Middleware Stack (ordem)
+Ordem atual:
 
-1. **Helmet** — Headers de segurança (`contentSecurityPolicy: false` para SPA).
-2. **CORS** — Origens configuradas via `CORS_ALLOWED_ORIGINS` (env), suporte a ngrok dinâmico.
-3. **JSON body parser** — `express.json({ limit: "10mb" })`.
-4. **URL rewrite** — `/api/pt/*` → `/api/*` (compatibilidade Caddy).
-5. **Rate limiting** — Global (60/min), Login (5/min), Claude (10/5min). Configurável via env.
-
-### Autenticação
-
-- **Session-based** com tokens Bearer (`Authorization: Bearer <sessionId>`).
-- Middleware `authMiddleware` valida sessão no SQLite.
-- `requireRole("role")` para controle de acesso por perfil.
-- `optionalAuth` para rotas que funcionam com ou sem autenticação.
-- Senhas com `crypto.scryptSync` + salt.
+1. `helmet`
+2. CORS com allowlist via `CORS_ALLOWED_ORIGINS`
+3. `express.json({ limit: "10mb" })`
+4. rewrite `/api/pt`
+5. rate limit global em `/api`
+6. rate limit de login em `/api/auth/login`
 
 ### Rotas
 
-- Organizadas por feature em `routes/<feature>.js`.
-- Cada arquivo exporta uma função factory: `export default function featureRoutes() { ... }`.
-- Prefixo `/api/` para todas as rotas de dados.
-- Rota `/api/health` obrigatória para health checks.
+- `routes/health.js`
+- `routes/auth.js`
+- `routes/documents.js`
+- `routes/conversations.js`
+- `routes/claude.js`
 
-### Banco de Dados
+### Integracao com IA
 
-- **SQLite síncrono** via `node:sqlite` (nativo do Node 24+).
-- Conexão única exportada de `db/index.js`.
-- **Migrations**: arquivos `.sql` numerados em `db/migrations/` (ex: `001_initial.sql`).
-- **Prepared Statements** centralizados no objeto `stmts` exportado de `db/index.js`.
-- Schema versionado na tabela `schema_version`.
+- O frontend envia `system`, `messages`, `output_config` e `interaction_context` para `POST /api/claude`.
+- O backend traduz isso para o contrato do `ai-gateway` em `AI_GATEWAY_URL`.
+- Structured output usa JSON Schema gerado em `src/services/claudeSchema.js`.
+- Sessao de CLI bridge usa `_sessionId` estavel para reduzir custo de contexto nos resumes.
 
-```
-db/
-├── index.js          # Conexão + migration runner + prepared statements
-└── migrations/
-    ├── 001_initial.sql
-    └── ...
-```
+### Banco e persistencia
 
-### Serviços Backend
+- SQLite sincronizado por `db/index.js`.
+- Migrations numeradas em `db/migrations/*.sql`.
+- Documentos por usuario ficam na tabela de docs e sao expostos pelas rotas `/api/documents`.
+- `seedDefaults.js` cria o pacote inicial de documentos da Renata no primeiro setup/restore.
 
-- Lógica de negócio em `services/<feature>.js`.
-- Proxy para API Anthropic em rota dedicada (nunca expor chave no frontend).
+### Documentos vivos
 
----
+Chaves persistidas hoje:
 
-## 3. Frontend
+- `micro`
+- `mem`
+- `hist`
+- `plano`
+- `progresso`
+- `cal`
+- `treinos`
+- `perfil`
+- `macro`
 
-### Princípios
+## 4. Frontend
 
-- **React 18.3 com JSX puro** — sem TypeScript.
-- **Sem React Router** — navegação por abas controlada via estado.
-- **Context API + custom hooks** — sem Redux, sem Zustand.
-- **Feature-first** — componentes agrupados por domínio, não por tipo.
+### Provider tree real
 
-### Provider Stack (aninhamento)
-
-```
+```text
 ThemeProvider
-  └── AuthProvider
-        └── FeatureProvider(s)
-              └── ToastProvider
-                    └── <App />
+  AuthProvider
+    DocsProvider
+      ToastProvider
+        App
 ```
 
-### Organização do Frontend
+### Principios atuais
 
-```
-src/
-├── main.jsx          # ReactDOM.createRoot
-├── App.jsx           # Layout + providers + navegação por abas
-├── components/       # Feature-first (components/<feature>/)
-├── contexts/         # React contexts (ThemeContext, AuthContext, etc.)
-├── hooks/            # Custom hooks para lógica de negócio
-├── services/         # Camada de abstração de API (fetch wrappers)
-├── views/            # Views fullscreen por aba
-├── styles/           # CSS + design tokens
-│   ├── tokens.css    # CSS variables
-│   └── tokens.js     # Tokens em JS para inline styles
-├── data/             # Constantes e dados estáticos
-└── utils/            # Utilitários puros
-```
+- Sem React Router; navegacao por abas em estado local.
+- Sem TypeScript.
+- Sem biblioteca externa de UI.
+- Feature-first em componentes, contexts e views.
+- Tokens e temas via CSS variables + objetos JS.
 
-### Serviços (API Layer)
+### Views principais
 
-- Cada `services/<feature>.js` encapsula chamadas fetch.
-- Base URL relativa (`/api/...`), Vite proxy em dev.
-- Token Bearer injetado automaticamente via header.
+- `Chat`
+- `Plano`
+- `Saude`
+- `Progresso`
+- `Caderno`
+- `Perfil`
+- `Logs`
 
----
+### Fluxos centrais
 
-## 4. Design System
+- Criacao de conta/login.
+- Carregamento de documentos no `DocsContext`.
+- Conversa geral e conversa de plano.
+- Geracao, edicao e nova versao de plano por data.
+- Marcacao de itens do plano com reflexo em calorias/treinos.
+- Revisao e reversao de updates aplicados pela IA.
 
-### Filosofia
+## 5. Modelo de plano e guard rails
 
-- **Sem Tailwind, sem CSS-in-JS, sem biblioteca de componentes.**
-- CSS puro com **CSS Variables** para temas.
-- Nomes de classe **BEM-inspired** com prefixo de componente (ex: `.mc__header`, `.sh__label`).
-- **Design tokens** em duas formas: `tokens.css` (variáveis CSS) + `tokens.js` (objetos JS).
-- **Dark-first** — tema escuro como padrão.
-- **Mobile-first** — layout constraint com `max-width`, header fixo + bottom nav.
+### Formato do plano
 
-### Tokens CSS (`:root`)
+`plano` e salvo como dicionario por data (`DD/MM/AAAA`). Cada dia contem:
 
-```css
-:root {
-  /* Layout */
-  --pt-app-max-width: 385px;
-  --pt-header-height: 56px;
-  --pt-bottom-nav-height: 64px;
+- `date`
+- `meta`
+- `grupos[]`
+- `notaCoach` opcional
 
-  /* Border Radius */
-  --pt-radius-sm: 8px;
-  --pt-radius-md: 12px;
-  --pt-radius-lg: 16px;
+### Regras importantes
 
-  /* Tipografia */
-  --pt-fs-2xs: 0.65rem;   /* 10.4px */
-  --pt-fs-xs: 0.75rem;    /* 12px   */
-  --pt-fs-sm: 0.85rem;    /* 13.6px */
-  --pt-fs-base: 1rem;     /* 16px   */
-  --pt-fs-lg: 1.25rem;    /* 20px   */
-  --pt-fs-xl: 1.5rem;     /* 24px   */
-  --pt-fs-2xl: 2rem;      /* 32px   */
+- Conversas de plano ficam presas a uma data (`planScopeDate`).
+- `replace_all` em `plano` so pode ocorrer em geracao automatica (`generate_plan` ou `new_plan`).
+- Updates granulares (`append_item`, `patch_item`, `delete_item`) respeitam ownership de itens marcados.
+- Mutacao de item marcado pela usuaria pode exigir permissao explicita.
+- Cards de revisao agrupam alteracoes repetidas do mesmo arquivo.
 
-  /* Espaçamento (base 4px) */
-  --pt-space-1: 4px;
-  --pt-space-2: 8px;
-  --pt-space-3: 12px;
-  --pt-space-4: 16px;
-  --pt-space-5: 20px;
-  --pt-space-6: 24px;
+Arquivos-chave:
 
-  /* Z-Index */
-  --pt-z-header: 100;
-  --pt-z-view: 50;
-  --pt-z-bottom-nav: 1000;
+- `src/utils/planUpdateGuard.js`
+- `src/utils/planPermissionGuard.js`
+- `src/utils/planItemOwnership.js`
+- `src/utils/revisionDiff.js`
 
-  /* Transições */
-  --pt-transition-fast: 0.15s ease;
-  --pt-transition-default: 0.3s ease;
-}
-```
+## 6. Design system
 
-> **Prefixo**: usar `--pt-` (personal-trainer) ao invés de `--ds-` para evitar colisão.
+### Tipografia e tema
 
-### Tokens JS
+- Fonte de interface: `DM Sans`.
+- Fonte de destaque: `Playfair Display`.
+- Tema padrao: `warm`.
+- Tema alternativo: `dark`.
 
-Objeto exportado de `tokens.js` com escalas de:
+### Tokens
 
-| Categoria       | Conteúdo                                                    |
-|-----------------|--------------------------------------------------------------|
-| `fontSize`      | 7 níveis: `2xs` a `2xl`                                     |
-| `spacing`       | Múltiplos de 4px: 0, 4, 8, 12, 16, 20, 24, 32, 40, 48      |
-| `radius`        | sm(8), md(12), lg(16), xl(20), 2xl(24), full                |
-| `colors`        | bg, text, accent, border — com variantes                     |
-| `gradients`     | Fundos, botões, barras de progresso                          |
-| `shadows`       | sm, md, lg + glow variants                                   |
-| `transitions`   | fast(0.15s), default(0.2s), slow(0.3s)                       |
-| `zIndex`        | base(1), dropdown(100), sticky(200), modal(1000), tooltip(1100) |
+- CSS vars em `src/styles/tokens.css`
+- Objetos JS em `src/styles/tokens.js`
+- Temas em `src/styles/themes.js`
 
-Estilos pré-construídos disponíveis: `buttonStyles`, `badgeStyles`, `inputStyles`, `gridStyles`, `typographyStyles`, `containerStyles`.
+### Layout
 
-### Tipografia
+- Mobile-first.
+- Header fixo.
+- Bottom nav fixa.
+- Largura maxima controlada por `--pt-app-max-width`.
 
-- **Serif**: Google Fonts — **Playfair Display** (títulos, destaque). Pesos: 400, 600, 700.
-- **Sans-serif**: **Inter** (corpo, interface).
-- Carregamento via `@import` no CSS + preload no `index.html`.
-- Anti-aliasing: `-webkit-font-smoothing: antialiased`.
+## 7. PWA
 
-### Ícones
+Escopo implementado hoje:
 
-- **Emoji/Unicode** — sem biblioteca de ícones externa.
-- Dimensionamento via `font-size` no CSS.
+- `public/manifest.json`
+- registro de `service worker` em `index.html`
+- cache de assets estaticos em `public/sw.js`
+- API sempre network-only
 
-### Hierarquia Visual (3 Níveis)
+Fora do escopo atual:
 
-| Nível | Componente | Visual | Uso |
-|-------|-----------|--------|-----|
-| Tier 1 | `SectionHeader` | Tipografia flat, sem borda | Seções principais |
-| Tier 2 | `SubgroupHeader` | Barra lateral 3px, colapsável | Agrupamentos |
-| Tier 3 | Cards | Borda + radius + background | Itens individuais |
+- push notifications
+- subscriptions
+- VAPID
+- envio server-side de notificacoes
 
-### Paleta de Cores (referência)
-
-**Backgrounds** (RGBA com transparência):
-- Primary: `rgba(18,8,8,0.95)` — fundo principal escuro
-- Secondary: `rgba(30,15,15,0.95)` — fundo secundário
-- Overlay: `rgba(0,0,0,0.85)` — modais e overlays
-
-**Texto**:
-- Primary: `#fce7e7` — texto principal (rosa claro)
-- Secondary: `rgba(255,255,255,0.7)` — texto secundário
-- Muted: `rgba(255,255,255,0.5)` — texto desabilitado
-
-**Acentos**:
-- Gold: `#d4af37` / `#f5d060` — destaque, recompensas
-- Rose: `#f43f5e` / `#f9a8d4` — alertas, ações
-- Purple: `#a855f7` / `#c4b5fd` — categorias
-- Green: `#4ade80` — sucesso
-- Orange: `#ff6b35` — avisos
-
-**Gradientes** pré-definidos para: backgrounds, botões, barras de progresso, títulos.
-
-**Sombras**: sm, md, lg + variantes glow (gold, purple, green).
-
-### Temas
-
-Sistema de temas dinâmico via `ThemeContext`:
-- Cada tema define cores, fontes, gradientes e sombras.
-- CSS variables aplicadas ao `:root` via `useEffect`.
-- Persistência em `localStorage`.
-- Tema padrão: escuro (dark-first).
-
----
-
-## 5. PWA
-
-| Recurso              | Implementação                                     |
-|----------------------|---------------------------------------------------|
-| Manifest             | `public/manifest.json` — `display: "standalone"`  |
-| Service Worker       | Network-first com cache fallback em `public/sw.js` |
-| Push Notifications   | `web-push` + VAPID keys (env)                      |
-| Offline              | Cache de assets estáticos, API network-only         |
-
-Chaves VAPID configuradas via `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_EMAIL`.
-
----
-
-## 6. Testes
+## 8. Testes
 
 ### Ferramentas
 
-- **Vitest** — runner + assertions (ambiente `node`).
-- **Supertest** — testes HTTP contra a app Express.
-- **@vitest/coverage-v8** — cobertura com provider V8.
+- `Vitest`: runner principal
+- `Supertest`: testes HTTP
+- `@testing-library/react`: testes de view/contexto
+- `@testing-library/user-event`: interacoes de UI
+- `jsdom`: ambiente browser para testes `.jsx`
+- `@vitest/coverage-v8`: cobertura
 
-### Configuração (`vitest.config.js`)
+### Configuracao
 
-```js
-export default defineConfig({
-  resolve: { alias: { sqlite: "node:sqlite" } },
-  test: {
-    environment: "node",
-    include: ["tests/**/*.test.js"],
-    setupFiles: ["tests/setup/test-env.js"],
-    fileParallelism: false,
-    coverage: { provider: "v8", reporter: ["text", "lcov"] },
-  },
-});
-```
+`vitest.config.js`:
 
-### Estrutura
+- plugin React habilitado
+- alias `sqlite -> node:sqlite`
+- `environment: "node"` por padrao
+- suites `.jsx` usando `// @vitest-environment jsdom`
+- `setupFiles: ["tests/setup/test-env.js"]`
+- `fileParallelism: false`
 
-```
-tests/
-├── setup/
-│   └── test-env.js       # Setup de ambiente (env vars, mocks)
-├── routes/
-│   ├── health.test.js
-│   └── <feature>.test.js
-└── services/
-    └── <feature>.test.js
-```
+### Cobertura critica recomendada
 
-### Padrão de Teste (Supertest)
+- rotas: auth, documents, conversations, health, claude
+- servicos: parser/schema/claude-service/guards/diffs
+- contexto: `DocsContext`
+- views: `PlanoView`
 
-```js
-import { describe, it, expect } from "vitest";
-import request from "supertest";
-import { createApp } from "../../app.js";
+## 9. Dependencias atuais
 
-describe("GET /api/health", () => {
-  it("retorna status 200", async () => {
-    const app = await createApp({ enableSpa: false });
-    const res = await request(app).get("/api/health");
-    expect(res.status).toBe(200);
-  });
-});
-```
+### Producao
 
----
-
-## 7. Dependências
-
-### Produção
-
-| Pacote              | Função                                    |
-|---------------------|--------------------------------------------|
-| express             | Framework HTTP                             |
-| cors                | Cross-Origin Resource Sharing              |
-| helmet              | Headers de segurança                       |
-| express-rate-limit  | Rate limiting por endpoint                 |
-| dotenv              | Variáveis de ambiente via `.env`           |
-| react               | Biblioteca de UI                           |
-| react-dom           | Renderização DOM                           |
-| web-push            | Push notifications (VAPID)                 |
+| Pacote | Uso |
+|---|---|
+| `express` | servidor HTTP |
+| `cors` | CORS |
+| `helmet` | headers de seguranca |
+| `express-rate-limit` | rate limiting |
+| `dotenv` | env vars |
+| `react` | UI |
+| `react-dom` | renderizacao |
 
 ### Desenvolvimento
 
-| Pacote               | Função                                   |
-|-----------------------|-------------------------------------------|
-| vite                 | Build tool + dev server com HMR           |
-| @vitejs/plugin-react | JSX transform para Vite                   |
-| vitest               | Test runner                               |
-| @vitest/coverage-v8  | Cobertura de código                       |
-| supertest            | Testes HTTP                               |
-| eslint               | Linting (flat config, ESLint 9)           |
-| concurrently         | Rodar backend + frontend em paralelo      |
+| Pacote | Uso |
+|---|---|
+| `vite` | build e dev server |
+| `@vitejs/plugin-react` | transform JSX |
+| `vitest` | testes |
+| `@vitest/coverage-v8` | cobertura |
+| `supertest` | testes HTTP |
+| `@testing-library/react` | testes de componentes/contexto |
+| `@testing-library/user-event` | eventos de UI |
+| `jsdom` | ambiente DOM para testes |
+| `eslint` | lint |
+| `concurrently` | frontend + backend em paralelo |
 
----
-
-## 8. Scripts (`package.json`)
+## 10. Scripts
 
 ```json
 {
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "server": "node server.js",
-    "start": "concurrently \"npm run server\" \"npm run dev\"",
-    "lint": "eslint . --max-warnings=0",
-    "test": "vitest",
-    "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
-  }
+  "dev": "vite",
+  "build": "vite build",
+  "preview": "vite preview",
+  "server": "node server.js",
+  "start": "concurrently \"npm run server\" \"npm run dev\"",
+  "lint": "eslint . --max-warnings=0",
+  "test": "vitest",
+  "test:run": "vitest run",
+  "test:coverage": "vitest run --coverage"
 }
 ```
 
----
+## 11. Configuracao e ambiente
 
-## 9. Configuração
-
-### Vite (`vite.config.js`)
-
-```js
-export default defineConfig({
-  base: "/pt/",
-  plugins: [react()],
-  server: {
-    port: 5174,
-    proxy: {
-      "/api/pt": {
-        target: "http://localhost:3400",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/pt/, "/api"),
-      },
-    },
-  },
-  build: { outDir: "dist", sourcemap: true },
-});
-```
-
-### ESLint (`eslint.config.js`)
-
-```js
-export default [
-  { ignores: ["coverage/**", "data/**", "dist/**", "node_modules/**"] },
-  {
-    files: ["**/*.{js,jsx,mjs,cjs}"],
-    languageOptions: {
-      ecmaVersion: "latest",
-      sourceType: "module",
-      parserOptions: { ecmaFeatures: { jsx: true } },
-    },
-  },
-];
-```
-
-### Variáveis de Ambiente (`.env.example`)
+### Variaveis de ambiente suportadas
 
 ```env
-# AI Gateway
 AI_GATEWAY_URL=http://localhost:3500
 GATEWAY_TIMEOUT_MS=180000
-
-# Porta do servidor
+REASONING_EFFORT=low
+MAX_INPUT_TOKENS=200000
+MAX_OUTPUT_TOKENS=64000
 PORT=3400
-
-# Banco SQLite
 DATABASE_PATH=./data/personal-trainer.sqlite
-
-# CORS
 CORS_ALLOWED_ORIGINS=http://localhost:5174
-
-# Rate Limiting
 RATE_LIMIT_GLOBAL_MAX=60
 RATE_LIMIT_LOGIN_MAX=5
 RATE_LIMIT_CLAUDE_MAX=10
-
-# Push Notifications (VAPID)
-VAPID_PUBLIC_KEY=
-VAPID_PRIVATE_KEY=
-VAPID_EMAIL=
 ```
 
----
+### Vite
 
-## 10. Infraestrutura
+- `base: "/pt/"`
+- proxy de `/api/pt` para `http://localhost:3400`
+- `build.outDir = "dist"`
+- sourcemap habilitado
 
-### `service.json`
+### Service manager
 
-Metadados para o lifecycle manager (`manage.mjs`) e integração com Caddy:
+`service.json` define:
 
-```json
-{
-  "schemaVersion": 1,
-  "id": "personal-trainer",
-  "name": "Personal Trainer",
-  "type": "project",
-  "pidFile": "pt-server.pid",
-  "logFile": "pt-server.log",
-  "port": 3400,
-  "healthUrl": "http://127.0.0.1:3400/api/health",
-  "build": { "command": "node", "args": ["node_modules/vite/bin/vite.js", "build"] },
-  "start": { "command": "node", "args": ["server.js"] },
-  "dev": { "command": "node", "args": ["server.js"], "env": { "NODE_ENV": "development" } },
-  "stop": { "gracefulTimeoutMs": 5000 },
-  "caddy": {
-    "routes": [
-      { "id": "pt-api", "path": "/api/pt*", "target": "http://localhost:3400/api", "stripPrefix": true, "enabled": true },
-      { "id": "pt-app", "path": "/pt*", "target": "http://localhost:3400", "stripPrefix": true, "enabled": true }
-    ]
-  }
-}
-```
+- build obrigatorio antes do start
+- `healthUrl` em `http://127.0.0.1:3400/api/health`
+- rotas Caddy para `/pt*` e `/api/pt*`
 
-### `manage.mjs`
+`manage.mjs` oferece:
 
-Script reutilizável de lifecycle (start/stop/restart/status + menu interativo).
-Lê `service.json`, gerencia PID file, faz health check via HTTP.
+- `start`
+- `stop`
+- `restart`
+- `status`
+- menu interativo quando executado em TTY
 
-### Caddy (reverse proxy)
+## 12. Estrutura relevante
 
-- API: `/api/pt/*` → `localhost:3400/api/*`
-- App: `/pt/*` → `localhost:3400/*`
-
----
-
-## 11. Estrutura de Diretórios
-
-```
+```text
 personal-trainer/
-├── server.js            # HTTP bootstrap
-├── app.js               # Express factory (createApp)
-├── middleware/           # auth.js, security.js
-├── routes/              # Feature-based route files
-│   ├── health.js
-│   ├── auth.js
-│   └── <feature>.js
-├── services/            # Backend business logic
-│   └── <feature>.js
-├── db/                  # SQLite
-│   ├── index.js         # Conexão + migrations + stmts
-│   └── migrations/      # *.sql numerados
-├── src/                 # Frontend (Vite + React)
-│   ├── main.jsx
+├── app.js
+├── server.js
+├── manage.mjs
+├── service.json
+├── db/
+├── middleware/
+├── routes/
+├── src/
 │   ├── App.jsx
-│   ├── components/      # Feature-first
-│   ├── contexts/        # ThemeContext, AuthContext, ...
-│   ├── hooks/           # useAuth, useTheme, ...
-│   ├── services/        # API layer (fetch)
-│   ├── views/           # Tab views fullscreen
-│   ├── styles/          # tokens.css, tokens.js, *.css
-│   ├── data/            # Constantes
-│   └── utils/           # Helpers puros
-├── public/              # Static, manifest.json, sw.js, icons/
-├── tests/               # Vitest suites
-│   ├── setup/
-│   ├── routes/
-│   └── services/
-├── data/                # SQLite file (gitignored)
-├── vite.config.js
-├── vitest.config.js
-├── eslint.config.js
-├── package.json
-├── service.json         # Metadados do serviço
-├── manage.mjs           # Lifecycle manager
-├── AGENTS.md            # Instruções para agentes AI
-├── STACK.md             # Este arquivo
-└── .env.example
+│   ├── main.jsx
+│   ├── components/
+│   ├── contexts/
+│   ├── data/
+│   ├── services/
+│   ├── styles/
+│   ├── utils/
+│   └── views/
+├── public/
+├── template/
+└── tests/
 ```
 
----
+## 13. Convencoes de implementacao
 
-## 12. Convenções
-
-| Aspecto             | Padrão                                                     |
-|---------------------|------------------------------------------------------------|
-| Módulos             | ESM (`"type": "module"` no package.json)                   |
-| Indentação          | 2 espaços                                                   |
-| Aspas               | Duplas (`"`)                                                |
-| Funções             | camelCase                                                    |
-| Classes/Componentes | PascalCase                                                   |
-| Env vars            | SCREAMING_SNAKE_CASE                                        |
-| Validação I/O       | Zod                                                          |
-| Organização         | Feature-first (componentes, rotas, serviços)                |
-| Commits             | PT-BR, imperativo, < 72 chars na primeira linha             |
-| Segredos            | Nunca no `.env.example` — usar valores vazios como template |
-| CSS Variables       | Prefixo `--pt-` (personal-trainer)                          |
-| data-testid         | BEM-like: `componente-elemento--modificador`                |
+- Modulos ESM.
+- Indentacao de 2 espacos.
+- Aspas duplas.
+- Feature-first.
+- Structured output com JSON Schema para respostas da IA.
+- Segredos fora do repositorio; `.env.example` so como template.
+- Mudancas em `/pt/` precisam considerar frontend, build, proxy e service worker.
