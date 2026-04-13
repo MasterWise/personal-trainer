@@ -35,7 +35,10 @@ export async function put(endpoint, body) {
     headers: buildHeaders(),
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`PUT ${endpoint}: ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `PUT ${endpoint}: ${res.status}`);
+  }
   return res.json();
 }
 

@@ -20,6 +20,7 @@ const DATA_DIR = path.dirname(DB_PATH);
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new DatabaseSync(DB_PATH);
+db.exec("PRAGMA foreign_keys = ON");
 
 // -- Migration Runner --
 
@@ -27,11 +28,33 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS applied_migrations (
+    filename TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    applied_at TEXT NOT NULL
+  );
 `);
 
 function getCurrentVersion() {
   const row = db.prepare("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1").get();
   return row ? row.version : 0;
+}
+
+function withTransaction(fn) {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = fn();
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* ignore rollback failure */
+    }
+    throw error;
+  }
 }
 
 function runMigrations() {
@@ -43,17 +66,45 @@ function runMigrations() {
     .sort();
 
   const current = getCurrentVersion();
+  const appliedRows = db.prepare("SELECT filename FROM applied_migrations").all();
+  const appliedFiles = new Set(appliedRows.map((row) => row.filename));
+
+  if (appliedFiles.size === 0 && current > 0) {
+    const backfillRows = files
+      .map((file) => {
+        const match = file.match(/^(\d+)/);
+        if (!match) return null;
+        return { file, version: parseInt(match[1], 10) };
+      })
+      .filter(Boolean)
+      .filter((entry) => entry.version <= current);
+
+    if (backfillRows.length > 0) {
+      withTransaction(() => {
+        const insertMigration = db.prepare("INSERT OR IGNORE INTO applied_migrations (filename, version, applied_at) VALUES (?, ?, ?)");
+        const now = new Date().toISOString();
+        for (const row of backfillRows) {
+          insertMigration.run(row.file, row.version, now);
+        }
+      });
+      backfillRows.forEach((row) => appliedFiles.add(row.file));
+    }
+  }
 
   for (const file of files) {
     const match = file.match(/^(\d+)/);
     if (!match) continue;
 
     const version = parseInt(match[1], 10);
-    if (version <= current) continue;
+    if (appliedFiles.has(file)) continue;
+    if (version <= current && appliedFiles.size > 0) continue;
 
     const sql = fs.readFileSync(path.join(migrationsDir, file), "utf-8");
-    db.exec(sql);
-    db.prepare("INSERT INTO schema_version (version) VALUES (?)").run(version);
+    withTransaction(() => {
+      db.exec(sql);
+      db.prepare("INSERT INTO schema_version (version) VALUES (?)").run(version);
+      db.prepare("INSERT INTO applied_migrations (filename, version, applied_at) VALUES (?, ?, ?)").run(file, version, new Date().toISOString());
+    });
     console.log(`[DB] Migration aplicada: ${file}`);
   }
 }
@@ -101,7 +152,12 @@ const stmts = {
   `),
 
   // Conversations
-  getCurrent: db.prepare(`SELECT ${CONVERSATION_SELECT_COLUMNS} FROM conversations WHERE user_id = ? AND is_current = 1 LIMIT 1`),
+  getCurrent: db.prepare(
+    `SELECT ${CONVERSATION_SELECT_COLUMNS} FROM conversations
+     WHERE user_id = ? AND is_current = 1
+     ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC
+     LIMIT 1`
+  ),
   getConversationById: db.prepare(`SELECT ${CONVERSATION_SELECT_COLUMNS} FROM conversations WHERE id = ? AND user_id = ? LIMIT 1`),
   saveCurrent: db.prepare(`
     INSERT INTO conversations (
@@ -171,4 +227,4 @@ const stmts = {
   deleteAiLogs: db.prepare("DELETE FROM ai_logs WHERE user_id = ?"),
 };
 
-export { db, stmts };
+export { db, stmts, withTransaction };

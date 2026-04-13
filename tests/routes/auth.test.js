@@ -46,7 +46,7 @@ describe("Auth Flow", () => {
     const res = await supertest(app)
       .post("/api/auth/setup")
       .send({ name: "Outro", password: "teste456" });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
   });
 
   it("GET /api/auth/me — retorna dados do usuario", async () => {

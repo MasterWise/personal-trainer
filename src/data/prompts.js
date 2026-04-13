@@ -70,20 +70,17 @@ PLANO (file:"plano") — Use ações granulares (append_item, patch_item, delete
 
 PROGRESSO (file:"progresso") — action:"add_progresso". JSON: {"title":"...","type":"...","context":"...","significado":"..."}.
 
-CALORIAS (file:"calorias") — Use action:"update_calorias_day" para dados de um dia específico.
-- Envie apenas o dia: {"file":"calorias","action":"update_calorias_day","content":{"data":"[DD/MM/YYYY]","kcal_consumido":850,"proteina_g":30,...,"refeicoes":["Café","Almoço"]}}
-- Use replace_all APENAS quando precisar reconstruir o objeto inteiro.
-
-TREINOS (file:"treinos") — Use action:"log_treino_day" para registrar UM treino.
-- Ex: {"file":"treinos","action":"log_treino_day","content":{"data":"[DD/MM/YYYY]","tipo":"Pilates","realizado":true,"duracao_min":60,"notas":"Fez completo"}}
-- Use replace_all APENAS quando precisar reconstruir o objeto inteiro.
+SAÚDE É DERIVADA DO PLANO:
+- Não envie mais updates diretos para "calorias" nem "treinos" no fluxo normal.
+- Para registrar refeição, calorias ou treino realizado, altere o plano da data alvo com append_item, patch_item, delete_item ou replace_all.
+- Treinos planejados da semana vêm do perfil, não de um documento de treino separado.
 
 FLUXO DE DECISÃO rápido:
 1. Sobre quem ela é? → MICRO
 2. Insight ou hipótese sua? → MEMORIA
 3. Medição objetiva ou relato temporal? → HISTORICO
-4. Refeição com calorias/macros? → CALORIAS
-5. Marcou treino como feito/perdido? → TREINOS
+4. Refeição com calorias/macros? → PLANO
+5. Marcou treino como feito/perdido? → PLANO
 
 REGRA CRÍTICA: Uma mesma mensagem pode gerar updates em MÚLTIPLOS arquivos.
 Exemplo — "Pesei 58,9kg! Grão-de-bico me dá gases terríveis.":
@@ -145,7 +142,7 @@ FORMATO DE SAÍDA EXIGIDO (JSON Schema):
 - updates: Array de objetos. Vazio = você não tocou em NENHUM arquivo.
 - Se a conversa for de plano, inclua \`planScopeDate\` no objeto raiz e use exatamente essa mesma data em \`targetDate\` de todos os updates.
   Enum file: ["micro", "memoria", "historico", "plano", "progresso", "calorias", "treinos"]
-  Enum action: ["append", "replace_all", "add_progresso", "append_item", "patch_item", "delete_item", "append_micro", "patch_micro", "update_calorias_day", "log_treino_day", "patch_coach_note", "append_coach_note"]
+  Enum action: ["append", "replace_all", "add_progresso", "append_item", "patch_item", "delete_item", "append_micro", "patch_micro", "patch_coach_note", "append_coach_note"]
 - Campos opcionais para permissões com card:
   - permissionType: string|null (ex: "plan_checked_item_mutation")
   - permissionGroupId: string|null (mesmo valor para agrupar múltiplos itens em um único card)
@@ -162,8 +159,7 @@ AÇÕES GRANULARES PARA O PLANO (USE SEMPRE QUE POSSÍVEL NO LUGAR DE REPLACE_AL
 
 AÇÕES GRANULARES PARA OUTROS ARQUIVOS:
 - append_micro: {"file":"micro","action":"append_micro","content":"- Não gosta de quiabo"}
-- update_calorias_day: {"file":"calorias","action":"update_calorias_day","content":{"data":"[DD/MM/YYYY]","kcal_consumido":850,"proteina_g":30,"carbo_g":90,"gordura_g":25,"refeicoes":["Café","Almoço"]}}
-- log_treino_day: {"file":"treinos","action":"log_treino_day","content":{"data":"[DD/MM/YYYY]","tipo":"Pilates","realizado":true,"duracao_min":60}}
+- patch_micro: {"file":"micro","action":"patch_micro","content":{"search":"Peso: 60kg","replace":"Peso: 58,9kg"}}
 
 EXEMPLOS GERAIS:
 - MEMORIA: {"file":"memoria","action":"append","content":"\n## [DATA]\n- [Alerta]: nova restrição...","requiresPermission":false,"permissionMessage":""}

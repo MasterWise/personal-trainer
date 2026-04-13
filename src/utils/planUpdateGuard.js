@@ -13,17 +13,15 @@ function isPlanDayObject(value) {
 
 function pickPlanDayFromPayload(payload, preferredDate) {
   if (isPlanDayObject(payload)) {
-    return payload;
+    if (!preferredDate) return payload;
+    if (!payload.date || payload.date === preferredDate) return payload;
+    return null;
   }
 
   if (!payload || typeof payload !== "object") return null;
 
   if (preferredDate && isPlanDayObject(payload[preferredDate])) {
     return payload[preferredDate];
-  }
-
-  for (const candidate of Object.values(payload)) {
-    if (isPlanDayObject(candidate)) return candidate;
   }
 
   return null;

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { stmts } from "../db/index.js";
+import { stmts, withTransaction } from "../db/index.js";
 import { authMiddleware, generateId } from "../middleware/auth.js";
 
 const PLAN_DATE_RE = /^\d{2}\/\d{2}\/\d{4}$/;
@@ -179,7 +179,7 @@ export default function conversationRoutes() {
   // Salva conversa atual
   router.put("/api/conversations/current", authMiddleware, (req, res) => {
     try {
-      const { messages, meta } = req.body || {};
+      const { conversationId, messages, meta } = req.body || {};
       if (!Array.isArray(messages)) {
         return res.status(400).json({ error: "Campo 'messages' deve ser um array" });
       }
@@ -187,21 +187,31 @@ export default function conversationRoutes() {
       const userId = req.user.id;
       const now = new Date().toISOString();
       const current = stmts.getCurrent.get(userId);
-      const convoId = current ? current.id : generateId();
-      const createdAt = current?.created_at || now;
-      const resolvedMeta = resolveMetaInput(meta || {}, current);
+      if (conversationId && current && current.id !== conversationId) {
+        return res.status(409).json({ error: "Conversa atual mudou; recarregue antes de salvar" });
+      }
 
-      saveConversationCurrent({
-        convoId,
-        userId,
-        messages,
-        createdAt,
-        type: resolvedMeta.type,
-        planDate: resolvedMeta.planDate,
-        planVersion: resolvedMeta.planVersion,
-        planThreadKey: resolvedMeta.planThreadKey,
-        originAction: resolvedMeta.originAction,
-        now,
+      const requested = conversationId ? stmts.getConversationById.get(String(conversationId), userId) : null;
+      const convoId = current?.id || requested?.id || generateId();
+      const createdAt = current?.created_at || requested?.created_at || now;
+      const resolvedMeta = resolveMetaInput(meta || {}, current || requested);
+
+      withTransaction(() => {
+        if (!current) {
+          stmts.clearCurrentForUser.run(userId);
+        }
+        saveConversationCurrent({
+          convoId,
+          userId,
+          messages,
+          createdAt,
+          type: resolvedMeta.type,
+          planDate: resolvedMeta.planDate,
+          planVersion: resolvedMeta.planVersion,
+          planThreadKey: resolvedMeta.planThreadKey,
+          originAction: resolvedMeta.originAction,
+          now,
+        });
       });
 
       res.json({
@@ -229,7 +239,9 @@ export default function conversationRoutes() {
         return res.status(404).json({ error: "Nenhuma conversa atual para arquivar" });
       }
 
-      stmts.archiveCurrent.run(userId);
+      withTransaction(() => {
+        stmts.archiveCurrent.run(userId);
+      });
       res.json({ ok: true, archivedId: current.id });
     } catch (error) {
       console.error("[Conversations Error][POST archive]", error);
@@ -252,8 +264,11 @@ export default function conversationRoutes() {
       }
 
       const now = new Date().toISOString();
-      stmts.clearCurrentForUser.run(userId);
-      const result = stmts.activateConversation.run(now, convoId, userId);
+      let result;
+      withTransaction(() => {
+        stmts.clearCurrentForUser.run(userId);
+        result = stmts.activateConversation.run(now, convoId, userId);
+      });
       if (result.changes === 0) {
         return res.status(404).json({ error: "Conversa não encontrada" });
       }
@@ -305,18 +320,20 @@ export default function conversationRoutes() {
           ? "new_plan"
           : "edit_plan";
 
-      stmts.clearCurrentForUser.run(userId);
-      saveConversationCurrent({
-        convoId,
-        userId,
-        messages: [],
-        createdAt: now,
-        type: "plan",
-        planDate,
-        planVersion: nextVersion,
-        planThreadKey,
-        originAction,
-        now,
+      withTransaction(() => {
+        stmts.clearCurrentForUser.run(userId);
+        saveConversationCurrent({
+          convoId,
+          userId,
+          messages: [],
+          createdAt: now,
+          type: "plan",
+          planDate,
+          planVersion: nextVersion,
+          planThreadKey,
+          originAction,
+          now,
+        });
       });
 
       const created = stmts.getConversationById.get(convoId, userId);

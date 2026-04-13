@@ -6,6 +6,12 @@
 - Para racional tecnico estavel, consulte [DECISIONS.md](F:/GitProjects/vps-mw-aiserver/projects/github/personal-trainer/DECISIONS.md).
 
 ## Linha do tempo
+- 2026-04-12 - `Plano` e `Saude` passaram a compartilhar a mesma data selecionada; a aba `Saude` agora lê projeções derivadas de `plano` + `perfil.treinos_planejados`, e `cal`/`treinos` passaram a ser mantidos como cache de compatibilidade.
+- 2026-04-12 - `DocsContext` ganhou `docsStatus`, `docsError`, mutações coordenadas via batch e rebuild central de cache de saúde, eliminando parte relevante das falhas silenciosas de persistência.
+- 2026-04-12 - Persistência de conversas deixou de truncar `messages`, `PUT /api/conversations/current` passou a aceitar `conversationId`, e fluxos de `reset`/`restore` passaram a invalidar a conversa atual.
+- 2026-04-12 - Runner de migrations passou a ser transacional com rastreamento por arquivo aplicado; foi adicionada a migration `005_integrity_guards.sql` com índices de unicidade para conversa atual e versões de plano.
+- 2026-04-12 - `POST /api/auth/setup` passou a exigir `BOOTSTRAP_SECRET` em produção, o TTL bearer caiu para 7 dias por padrão e `/api/health` passou a validar SQLite + reachability do gateway.
+- 2026-04-12 - Produção deixou de aceitar fallback silencioso para `public/`; o service worker passou a precachear os assets reais do build e o `manage.mjs` passou a esperar health real antes de considerar o serviço iniciado.
 - 2026-04-12 - Regressao local em `src/services/claudeService.js` foi corrigida; build, lint, testes e `manage.mjs start` voltaram a passar no fluxo oficial.
 - 2026-04-12 - Cobertura foi ampliada com suites para `routes/documents`, `src/services/claudeService`, `DocsContext` e `PlanoView`, usando `@testing-library/react`, `@testing-library/user-event` e `jsdom`.
 - 2026-04-12 - Documentacao operacional foi alinhada ao estado real do app; push notifications sairam do escopo atual e `web-push`/variaveis VAPID foram removidos por nao haver implementacao ativa.

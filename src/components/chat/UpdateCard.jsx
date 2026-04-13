@@ -75,7 +75,7 @@ export default function UpdateCard({ revisions = [], setTab, onRevert }) {
   const desc = DESCRIPTIONS[file] || `${label} atualizado`;
   const actionLabel = getActionSummary(list);
   const total = list.length;
-  const allReverted = list.every((rev) => rev?.reverted);
+  const allReverted = list.every((rev) => !!rev?.revertedAt || rev?.canRevert === false);
 
   const cardBg = allReverted ? `${c.textMuted}10` : c.primaryBg;
   const cardBorder = allReverted ? `${c.textMuted}30` : c.border;
@@ -141,7 +141,7 @@ export default function UpdateCard({ revisions = [], setTab, onRevert }) {
         }}>
           {list.map((rev, idx) => {
             const diff = buildRevisionDiff(rev.action, rev.before, rev.after);
-            const itemReverted = rev?.reverted === true;
+            const itemReverted = !!rev?.revertedAt || rev?.canRevert === false;
             return (
               <div key={`${file}-${action}-${idx}`} style={{ marginBottom: idx === list.length - 1 ? (allReverted ? "0" : "10px") : "12px" }}>
                 {list.length > 1 && (

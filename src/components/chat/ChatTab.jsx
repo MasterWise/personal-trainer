@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { useTheme } from "../../contexts/ThemeContext.jsx";
-import { FILE_TO_TAB } from "../../data/constants.js";
 import { buildRelevantPlanContext, buildSystemInstructions, buildSystemContext } from "../../data/prompts.js";
 import { sendMessage } from "../../services/claudeService.js";
 import {
@@ -8,6 +7,7 @@ import {
   isClaudeResponseParseError,
   parseClaudeStructuredResponse,
 } from "../../services/claudeResponseParser.js";
+import { hashString } from "../../utils/stringHash.js";
 import { lockPlanUpdateToDate } from "../../utils/planUpdateGuard.js";
 import { enforcePlanUserCheckedPermission } from "../../utils/planPermissionGuard.js";
 import ChatMsg from "./ChatMsg.jsx";
@@ -88,10 +88,11 @@ function buildPermissionGroups(permissionEntries) {
 
 export default function ChatTab({
   docs,
-  setDocs,
   messages,
   setMessages,
   docsReady,
+  docsStatus = "loading",
+  docsError = null,
   setTab,
   onGeneratePlan,
   generating,
@@ -101,7 +102,7 @@ export default function ChatTab({
   inputPlaceholder,
   contextBadge,
 }) {
-  const { applyUpdate } = useDocs();
+  const { applyUpdateBatch } = useDocs();
   const { theme } = useTheme();
   const c = theme.colors;
   const [input, setInput] = useState("");
@@ -170,11 +171,7 @@ export default function ChatTab({
       const perms = preparedEntries.filter((entry) => entry.update?.requiresPermission);
 
       // Apply direct updates and capture before/after revisions
-      const appliedUpdates = [];
-      for (const u of direct) {
-        const revision = await applyUpdate(u);
-        if (revision) appliedUpdates.push(revision);
-      }
+      const appliedUpdates = direct.length > 0 ? await applyUpdateBatch(direct) : [];
 
       if (perms.length > 0) {
         setPPerms((prev) => [...prev, ...buildPermissionGroups(perms)]);
@@ -199,11 +196,7 @@ export default function ChatTab({
     if (!perm) return;
     setPPerms(prev => prev.filter(p => p.id !== permId));
     if (approved) {
-      const appliedUpdates = [];
-      for (const update of (perm.updates || [])) {
-        const revision = await applyUpdate({ ...update, permissionApproved: true });
-        if (revision) appliedUpdates.push(revision);
-      }
+      const appliedUpdates = await applyUpdateBatch((perm.updates || []).map((update) => ({ ...update, permissionApproved: true })));
       const feedback = perm.prompt?.approvedFeedback || "✓ Alterações aplicadas.";
       setMessages(prev => [...prev, { role: "assistant", content: feedback, appliedUpdates }]);
     } else {
@@ -216,7 +209,14 @@ export default function ChatTab({
     const msg = messages[msgIndex];
     if (!msg?.appliedUpdates?.[revisionIndex]) return;
     const rev = msg.appliedUpdates[revisionIndex];
-    // Revert = apply replace_all with the "before" content
+    const currentDoc = docs[rev.docKey] || "";
+    if (hashString(currentDoc) !== rev.afterHash) {
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: "Não reverti essa alteração porque o documento mudou depois dela. Recarregue o contexto ou aplique uma correção nova.",
+      }]);
+      return;
+    }
     const revertUpdate = lockPlanUpdateToDate(
       { file: rev.file, action: "replace_all", content: rev.before },
       planDateLock,
@@ -224,12 +224,11 @@ export default function ChatTab({
       { allowPlanReplaceAll: true }
     );
     if (!revertUpdate) return;
-    await applyUpdate(revertUpdate);
-    // Mark revision as reverted in the message
+    await applyUpdateBatch([revertUpdate]);
     setMessages(prev => prev.map((m, i) => {
       if (i !== msgIndex) return m;
       const newUpdates = [...(m.appliedUpdates || [])];
-      newUpdates[revisionIndex] = { ...newUpdates[revisionIndex], reverted: true };
+      newUpdates[revisionIndex] = { ...newUpdates[revisionIndex], canRevert: false, revertedAt: new Date().toISOString() };
       return { ...m, appliedUpdates: newUpdates };
     }));
   }
@@ -240,7 +239,12 @@ export default function ChatTab({
   return (
     <div className="pt-chat">
       <div className="pt-chat__messages">
-        {!docsReady && <div style={{ textAlign: "center", marginTop: "40px", color: c.textMuted, fontFamily: theme.font, fontSize: "14px" }}>Carregando memória...</div>}
+        {!docsReady && docsStatus !== "error" && <div style={{ textAlign: "center", marginTop: "40px", color: c.textMuted, fontFamily: theme.font, fontSize: "14px" }}>Carregando memória...</div>}
+        {docsStatus === "error" && (
+          <div style={{ textAlign: "center", marginTop: "40px", color: c.danger || "#C05A3A", fontFamily: theme.font, fontSize: "14px", padding: "0 20px" }}>
+            {docsError || "Erro ao carregar memória. Tente recarregar o app."}
+          </div>
+        )}
 
         {docsReady && contextBadge && (
           <div style={{ padding: "8px 12px 0" }}>

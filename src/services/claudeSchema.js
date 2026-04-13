@@ -27,8 +27,6 @@ export function buildResponseSchemaForInteraction(interactionMeta = {}) {
         "delete_item",
         "append_micro",
         "patch_micro",
-        "update_calorias_day",
-        "log_treino_day",
         "patch_coach_note",
         "append_coach_note",
       ],

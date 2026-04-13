@@ -1,17 +1,23 @@
 import { useTheme } from "../../contexts/ThemeContext.jsx";
 
-export default function Header({ docsReady, onHistory, onNewConvo, hasMessages }) {
+export default function Header({ docsReady, docsStatus = "loading", docsError = null, onHistory, onNewConvo, hasMessages }) {
   const { theme, toggleTheme, themeId } = useTheme();
   const c = theme.colors;
+  const statusText = docsStatus === "error"
+    ? "Erro ao carregar memória"
+    : docsReady
+      ? "Online — memória carregada"
+      : "Carregando...";
+  const statusColor = docsStatus === "error" ? (c.danger || "#C05A3A") : docsReady ? c.ok : "#C09040";
 
   return (
     <div className="pt-header">
       <div className="pt-header__avatar">🌿</div>
       <div className="pt-header__info">
         <div className="pt-header__name">Coach Renata</div>
-        <div className="pt-header__status">
-          <span className="pt-header__status-dot" style={{ background: docsReady ? c.ok : "#C09040" }} />
-          {docsReady ? "Online — memória carregada" : "Carregando..."}
+        <div className="pt-header__status" title={docsError || statusText}>
+          <span className="pt-header__status-dot" style={{ background: statusColor }} />
+          {statusText}
         </div>
       </div>
       <div className="pt-header__actions">

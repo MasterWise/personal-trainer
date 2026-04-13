@@ -12,7 +12,7 @@ describe("planUpdateGuard", () => {
     expect(lockPlanUpdateToDate(update, null)).toEqual(update);
   });
 
-  it("força replace_all para a data alvo quando payload é plano diário", () => {
+  it("rejeita replace_all quando payload diário aponta para outra data", () => {
     const update = {
       file: "plano",
       action: "replace_all",
@@ -22,11 +22,23 @@ describe("planUpdateGuard", () => {
       }),
     };
 
+    expect(lockPlanUpdateToDate(update, "27/02/2026")).toBeNull();
+  });
+
+  it("aceita replace_all quando payload diário já está na data alvo", () => {
+    const update = {
+      file: "plano",
+      action: "replace_all",
+      content: JSON.stringify({
+        date: "27/02/2026",
+        grupos: [{ nome: "Almoço", itens: [] }],
+      }),
+    };
+
     const guarded = lockPlanUpdateToDate(update, "27/02/2026");
     const parsed = JSON.parse(guarded.content);
     expect(parsed.date).toBe("27/02/2026");
     expect(guarded.targetDate).toBe("27/02/2026");
-    expect(Array.isArray(parsed.grupos)).toBe(true);
   });
 
   it("em replace_all com dicionário de dias, seleciona a data alvo", () => {

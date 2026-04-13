@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { stmts } from "../db/index.js";
+import { stmts, withTransaction } from "../db/index.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { clearUserDocuments, seedUserDefaults } from "../db/seedDefaults.js";
 
@@ -24,8 +24,11 @@ export default function documentRoutes() {
   // Limpa todos os documentos do usuario (reset)
   router.post("/api/documents/reset", authMiddleware, (req, res) => {
     try {
-      clearUserDocuments(req.user.id);
-      res.json({ ok: true });
+      withTransaction(() => {
+        clearUserDocuments(req.user.id);
+        stmts.clearCurrentForUser.run(req.user.id);
+      });
+      res.json({ ok: true, currentConversationCleared: true });
     } catch (error) {
       console.error("[Documents Error][reset]", error);
       res.status(500).json({ error: "Erro ao limpar documentos" });
@@ -35,8 +38,11 @@ export default function documentRoutes() {
   // Restaura dados padrao (Renata)
   router.post("/api/documents/restore", authMiddleware, (req, res) => {
     try {
-      seedUserDefaults(req.user.id);
-      res.json({ ok: true });
+      withTransaction(() => {
+        seedUserDefaults(req.user.id);
+        stmts.clearCurrentForUser.run(req.user.id);
+      });
+      res.json({ ok: true, currentConversationCleared: true });
     } catch (error) {
       console.error("[Documents Error][restore]", error);
       res.status(500).json({ error: "Erro ao restaurar documentos" });
@@ -91,16 +97,20 @@ export default function documentRoutes() {
         return res.status(400).json({ error: "Body deve ser um array de {key, content}" });
       }
 
+      const validated = docs.filter(({ key, content }) => !!key && content !== undefined && content !== null);
+      if (validated.length === 0) {
+        return res.status(400).json({ error: "Nenhum documento valido enviado" });
+      }
+
       const now = new Date().toISOString();
       const results = [];
 
-      for (const { key, content } of docs) {
-        if (!key || content === undefined || content === null) {
-          continue;
+      withTransaction(() => {
+        for (const { key, content } of validated) {
+          stmts.upsertDoc.run(req.user.id, key, content, now);
+          results.push({ key, updatedAt: now });
         }
-        stmts.upsertDoc.run(req.user.id, key, content, now);
-        results.push({ key, updatedAt: now });
-      }
+      });
 
       res.json({ ok: true, updated: results.length, results });
     } catch (error) {

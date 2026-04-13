@@ -1,7 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "./AuthContext.jsx";
 import { get, put, post } from "../services/api.js";
+import { rebuildHealthCacheDocs } from "../utils/healthModel.js";
 import { applyAiCheckedOwnership, applyAiOwnershipToPlanDay, canAiMutatePlanItem } from "../utils/planItemOwnership.js";
+import { hashString } from "../utils/stringHash.js";
 
 const DocsContext = createContext(null);
 
@@ -38,254 +40,490 @@ function emptyDocs() {
   };
 }
 
+function cloneDocs(docs) {
+  return { ...docs };
+}
+
+function parseJson(value, fallback) {
+  if (value && typeof value === "object") return value;
+  if (typeof value !== "string") return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function parseArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parsePlanoDict(planoStr, fallbackDate = null) {
+  const parsed = parseJson(planoStr, {});
+  if (Array.isArray(parsed)) return {};
+  if (parsed.grupos) {
+    const dateKey = parsed.date || fallbackDate || new Date().toLocaleDateString("pt-BR");
+    return { [dateKey]: parsed };
+  }
+  return parsed;
+}
+
+function serializeDocsFromResponse(res) {
+  const loaded = emptyDocs();
+  if (res.documents && typeof res.documents === "object") {
+    for (const key of DOC_KEYS) {
+      if (res.documents[key] !== undefined && res.documents[key] !== null) {
+        loaded[key] = res.documents[key];
+      }
+    }
+  }
+  return loaded;
+}
+
+function diffDocKeys(prevDocs, nextDocs) {
+  return DOC_KEYS.filter((key) => prevDocs[key] !== nextDocs[key]);
+}
+
+function buildPatchMicro(prevValue, content) {
+  if (content && typeof content === "object") {
+    const search = typeof content.search === "string" ? content.search : content.find;
+    const replacement = typeof content.replace === "string" ? content.replace : content.value;
+    if (typeof search === "string" && typeof replacement === "string" && search) {
+      return prevValue.includes(search) ? prevValue.replace(search, replacement) : `${prevValue}\n${replacement}`.trim();
+    }
+    if (typeof content.text === "string" && content.text.trim()) {
+      return content.text.trim();
+    }
+  }
+
+  const text = typeof content === "string" ? content.trim() : JSON.stringify(content);
+  if (!text) return prevValue;
+  return text.startsWith("#") ? text : `${prevValue}\n${text}`.trim();
+}
+
+function buildRevision(update, stateKey, before, after, batchId) {
+  return {
+    file: update.file,
+    action: update.action,
+    docKey: stateKey,
+    batchId,
+    before,
+    after,
+    beforeHash: hashString(before),
+    afterHash: hashString(after),
+    canRevert: true,
+    revertedAt: null,
+  };
+}
+
+function applySingleUpdateToDocs(docs, update, batchId) {
+  const stateKey = FILE_TO_STATE[update.file];
+  if (!stateKey) {
+    return { nextDocs: docs, revision: null };
+  }
+
+  const before = docs[stateKey] || "";
+  const nextDocs = cloneDocs(docs);
+  let newVal = null;
+
+  if (update.file === "progresso" && update.action === "add_progresso") {
+    const progresso = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
+    const arr = parseArray(before);
+    arr.push({
+      id: Date.now(),
+      date: new Date().toLocaleDateString("pt-BR", { month: "short", year: "numeric" }),
+      emoji: PROGRESSO_EMOJIS[progresso.type] || "\u{1F3C6}",
+      ...progresso,
+    });
+    newVal = JSON.stringify(arr);
+  } else if (update.action === "append") {
+    const val = typeof update.content === "object" ? JSON.stringify(update.content) : String(update.content || "");
+    newVal = `${before}${before ? "\n\n" : ""}${val}`.trim();
+  } else if (update.action === "replace_all") {
+    if (stateKey === "plano") {
+      let incomingObj = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
+      incomingObj = applyAiOwnershipToPlanDay(incomingObj);
+      const targetDate = update.targetDate || incomingObj?.date || new Date().toLocaleDateString("pt-BR");
+      const dict = parsePlanoDict(before, targetDate);
+      dict[targetDate] = incomingObj;
+      newVal = JSON.stringify(dict);
+    } else {
+      newVal = typeof update.content === "object" ? JSON.stringify(update.content) : String(update.content || "");
+    }
+  } else if (["append_item", "patch_item", "delete_item"].includes(update.action) && stateKey === "plano") {
+    const itemData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
+    const targetDate = update.targetDate || update.date || itemData.date || new Date().toLocaleDateString("pt-BR");
+    const permissionApproved = update.permissionApproved === true;
+    const dict = parsePlanoDict(before, targetDate);
+    if (!dict[targetDate]) {
+      dict[targetDate] = {
+        date: targetDate,
+        meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 },
+        grupos: [],
+      };
+    }
+    const daily = dict[targetDate];
+
+    if (update.action === "append_item") {
+      let groupIndex = itemData.grupoIndex;
+      if (groupIndex === undefined) {
+        groupIndex = daily.grupos.findIndex((group) => group.nome.toLowerCase().includes(String(itemData.grupoNome || "nenhum").toLowerCase()));
+      }
+      if (groupIndex === -1 || groupIndex === undefined) {
+        daily.grupos.push({ nome: itemData.grupoNome || "Adicionados", emoji: "📝", itens: [] });
+        groupIndex = daily.grupos.length - 1;
+      }
+      if (!daily.grupos[groupIndex].itens) daily.grupos[groupIndex].itens = [];
+      daily.grupos[groupIndex].itens.push(applyAiCheckedOwnership({ ...(itemData.item || {}) }));
+    } else {
+      for (const group of daily.grupos) {
+        const itemIndex = group.itens.findIndex((item) => item.id === itemData.id);
+        if (itemIndex === -1) continue;
+        const currentItem = group.itens[itemIndex];
+        if (update.action === "delete_item") {
+          if (permissionApproved || canAiMutatePlanItem(currentItem)) {
+            group.itens.splice(itemIndex, 1);
+          }
+        } else if (update.action === "patch_item") {
+          if (!permissionApproved && !canAiMutatePlanItem(currentItem)) {
+            break;
+          }
+          const patch = { ...(itemData.patch || {}) };
+          if ("checked_source" in patch) delete patch.checked_source;
+          group.itens[itemIndex] = applyAiCheckedOwnership({ ...currentItem, ...patch });
+        }
+        break;
+      }
+    }
+
+    newVal = JSON.stringify(dict);
+  } else if (update.action === "append_micro" && stateKey === "micro") {
+    const val = typeof update.content === "object" ? JSON.stringify(update.content) : String(update.content || "");
+    newVal = `${before}${before ? "\n" : ""}${val}`.trim();
+  } else if (update.action === "patch_micro" && stateKey === "micro") {
+    newVal = buildPatchMicro(before, update.content);
+  } else if (update.action === "update_calorias_day" && stateKey === "cal") {
+    const dayData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
+    const calObj = parseJson(before, {});
+    if (!calObj.dias) calObj.dias = {};
+    const dayKey = dayData.data || new Date().toLocaleDateString("pt-BR");
+    calObj.dias[dayKey] = { ...(calObj.dias[dayKey] || {}), ...dayData };
+    delete calObj.dias[dayKey].data;
+    newVal = JSON.stringify(calObj);
+  } else if (update.action === "log_treino_day" && stateKey === "treinos") {
+    const treinoData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
+    const treinosObj = parseJson(before, {});
+    if (!Array.isArray(treinosObj.registros)) treinosObj.registros = [];
+    treinosObj.registros.push(treinoData);
+    newVal = JSON.stringify(treinosObj);
+  } else if (update.action === "patch_coach_note" && stateKey === "plano") {
+    const noteData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
+    const targetDate = update.targetDate || noteData.date || new Date().toLocaleDateString("pt-BR");
+    const dict = parsePlanoDict(before, targetDate);
+    if (!dict[targetDate]) {
+      dict[targetDate] = {
+        date: targetDate,
+        meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 },
+        grupos: [],
+      };
+    }
+    dict[targetDate].notaCoach = String(noteData.nota || noteData.note || "");
+    newVal = JSON.stringify(dict);
+  } else if (update.action === "append_coach_note" && stateKey === "plano") {
+    const noteData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
+    const targetDate = update.targetDate || noteData.date || new Date().toLocaleDateString("pt-BR");
+    const dict = parsePlanoDict(before, targetDate);
+    if (!dict[targetDate]) {
+      dict[targetDate] = {
+        date: targetDate,
+        meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 },
+        grupos: [],
+      };
+    }
+    const prevNote = String(dict[targetDate].notaCoach || "");
+    const appendNote = String(noteData.nota || noteData.note || "").trim();
+    dict[targetDate].notaCoach = [prevNote, appendNote].filter(Boolean).join("\n").trim();
+    newVal = JSON.stringify(dict);
+  }
+
+  if (newVal === null || newVal === undefined || newVal === before) {
+    return { nextDocs: docs, revision: null };
+  }
+
+  nextDocs[stateKey] = newVal;
+  return {
+    nextDocs,
+    revision: buildRevision(update, stateKey, before, newVal, batchId),
+  };
+}
+
 export function DocsProvider({ children }) {
   const { isAuthenticated } = useAuth();
   const [docs, setDocs] = useState(emptyDocs);
-  const [docsReady, setDocsReady] = useState(false);
-  // Ref always mirrors latest docs — safe to read in async callbacks without stale closures
+  const [docsStatus, setDocsStatus] = useState("loading");
+  const [docsError, setDocsError] = useState(null);
+  const [mutationSeq, setMutationSeq] = useState(0);
+  const [docsGeneration, setDocsGeneration] = useState(0);
   const docsRef = useRef(emptyDocs());
-  useEffect(() => { docsRef.current = docs; }, [docs]);
+  const mutationQueueRef = useRef(Promise.resolve());
+
+  useEffect(() => {
+    docsRef.current = docs;
+  }, [docs]);
+
+  const docsReady = docsStatus === "ready";
+
+  const loadAll = useCallback(async () => {
+    const res = await get("/documents");
+    return serializeDocsFromResponse(res);
+  }, []);
+
+  const reloadDocs = useCallback(async ({ markReady = true } = {}) => {
+    const loaded = await loadAll();
+    docsRef.current = loaded;
+    setDocs(loaded);
+    if (markReady) setDocsStatus("ready");
+    setDocsError(null);
+    return loaded;
+  }, [loadAll]);
 
   useEffect(() => {
     if (!isAuthenticated) {
-      setDocs(emptyDocs());
-      setDocsReady(false);
+      const nextDocs = emptyDocs();
+      docsRef.current = nextDocs;
+      setDocs(nextDocs);
+      setDocsStatus("loading");
+      setDocsError(null);
       return;
     }
 
     let cancelled = false;
-    async function loadAll() {
+    setDocsStatus("loading");
+    setDocsError(null);
+
+    async function hydrate() {
       try {
-        const res = await get("/documents");
+        const loaded = await loadAll();
         if (cancelled) return;
-        const loaded = emptyDocs();
-        if (res.documents && typeof res.documents === "object") {
-          for (const key of DOC_KEYS) {
-            if (res.documents[key] !== undefined && res.documents[key] !== null) {
-              loaded[key] = res.documents[key];
-            }
-          }
-        }
+        docsRef.current = loaded;
         setDocs(loaded);
-      } catch {
-        /* keep empty defaults */
-      } finally {
-        if (!cancelled) setDocsReady(true);
+        setDocsStatus("ready");
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "Falha ao carregar documentos";
+        setDocsStatus("error");
+        setDocsError(message);
       }
     }
-    loadAll();
-    return () => { cancelled = true; };
-  }, [isAuthenticated]);
 
-  const saveDoc = useCallback(async (key, content) => {
-    try {
-      await put(`/documents/${key}`, { content });
-    } catch (e) {
-      console.error("saveDoc:", key, e);
+    hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, loadAll]);
+
+  const persistDocs = useCallback(async (nextDocs, keys) => {
+    if (!Array.isArray(keys) || keys.length === 0) return;
+
+    if (keys.length === 1) {
+      await put(`/documents/${keys[0]}`, { content: nextDocs[keys[0]] });
+      return;
     }
+
+    await put("/documents", keys.map((key) => ({ key, content: nextDocs[key] })));
   }, []);
 
-  async function reloadDocs() {
-    const res = await get("/documents");
-    const loaded = emptyDocs();
-    if (res.documents && typeof res.documents === "object") {
-      for (const key of DOC_KEYS) {
-        if (res.documents[key] !== undefined && res.documents[key] !== null) {
-          loaded[key] = res.documents[key];
+  const enqueueMutation = useCallback((runner) => {
+    const chained = mutationQueueRef.current.then(runner, runner);
+    mutationQueueRef.current = chained.catch(() => {});
+    return chained;
+  }, []);
+
+  const rebuildHealthCache = useCallback(async (nextDocsOrTransform) => {
+    return enqueueMutation(async () => {
+      const baseDocs = typeof nextDocsOrTransform === "function"
+        ? nextDocsOrTransform(docsRef.current)
+        : nextDocsOrTransform;
+      const nextDocs = rebuildHealthCacheDocs(baseDocs);
+      const changedKeys = diffDocKeys(docsRef.current, nextDocs).filter((key) => key === "cal" || key === "treinos");
+      if (changedKeys.length === 0) return nextDocs;
+      await persistDocs(nextDocs, changedKeys);
+      docsRef.current = nextDocs;
+      setDocs(nextDocs);
+      setDocsError(null);
+      setDocsStatus("ready");
+      return nextDocs;
+    });
+  }, [enqueueMutation, persistDocs]);
+
+  const mutateDocs = useCallback(async (transform, options = {}) => {
+    return enqueueMutation(async () => {
+      const prevDocs = docsRef.current;
+      const baseNextDocs = typeof transform === "function" ? transform(prevDocs) : { ...prevDocs, ...transform };
+      const nextDocs = options.rebuildHealthCache ? rebuildHealthCacheDocs(baseNextDocs) : baseNextDocs;
+      const changedKeys = Array.isArray(options.persistKeys)
+        ? options.persistKeys.filter((key) => prevDocs[key] !== nextDocs[key])
+        : diffDocKeys(prevDocs, nextDocs);
+
+      if (changedKeys.length === 0) {
+        return { docs: prevDocs, changedKeys: [] };
+      }
+
+      try {
+        await persistDocs(nextDocs, changedKeys);
+        docsRef.current = nextDocs;
+        setDocs(nextDocs);
+        setDocsError(null);
+        setDocsStatus("ready");
+        setMutationSeq((current) => current + 1);
+        return { docs: nextDocs, changedKeys };
+      } catch (error) {
+        try {
+          await reloadDocs({ markReady: true });
+        } catch (reloadError) {
+          const reloadMessage = reloadError instanceof Error ? reloadError.message : "Falha ao recarregar documentos";
+          setDocsStatus("error");
+          setDocsError(reloadMessage);
+        }
+        const message = error instanceof Error ? error.message : "Falha ao salvar documentos";
+        setDocsError(message);
+        throw error;
+      }
+    });
+  }, [enqueueMutation, persistDocs, reloadDocs]);
+
+  const saveDoc = useCallback(async (key, content, options = {}) => {
+    return mutateDocs(
+      (prevDocs) => ({ ...prevDocs, [key]: content }),
+      {
+        persistKeys: [key],
+        rebuildHealthCache: options.rebuildHealthCache === true,
+      }
+    );
+  }, [mutateDocs]);
+
+  const applyUpdateBatch = useCallback(async (updates) => {
+    const list = Array.isArray(updates) ? updates : [];
+    if (list.length === 0) return [];
+
+    return enqueueMutation(async () => {
+      const prevDocs = docsRef.current;
+      let workingDocs = prevDocs;
+      const revisions = [];
+      const touchedStateKeys = new Set();
+      const batchId = crypto.randomUUID();
+
+      for (const update of list) {
+        const { nextDocs, revision } = applySingleUpdateToDocs(workingDocs, update, batchId);
+        workingDocs = nextDocs;
+        if (revision) {
+          revisions.push(revision);
+          touchedStateKeys.add(revision.docKey);
         }
       }
-    }
-    setDocs(loaded);
-  }
 
-  const clearDocs = useCallback(async () => {
-    try {
-      await post("/documents/reset");
-      await reloadDocs();
-    } catch (e) {
-      console.error("clearDocs:", e);
-    }
-  }, []);
+      if (revisions.length === 0) return [];
 
-  const restoreDocs = useCallback(async () => {
-    try {
-      await post("/documents/restore");
-      await reloadDocs();
-    } catch (e) {
-      console.error("restoreDocs:", e);
-    }
-  }, []);
+      const shouldRebuildHealth = touchedStateKeys.has("plano") || touchedStateKeys.has("perfil");
+      const finalDocs = shouldRebuildHealth ? rebuildHealthCacheDocs(workingDocs) : workingDocs;
+      const changedKeys = diffDocKeys(prevDocs, finalDocs);
+
+      try {
+        await persistDocs(finalDocs, changedKeys);
+        docsRef.current = finalDocs;
+        setDocs(finalDocs);
+        setDocsError(null);
+        setDocsStatus("ready");
+        setMutationSeq((current) => current + 1);
+        return revisions.map((revision) => {
+          const after = finalDocs[revision.docKey];
+          return {
+            ...revision,
+            after,
+            afterHash: hashString(after),
+          };
+        });
+      } catch (error) {
+        try {
+          await reloadDocs({ markReady: true });
+        } catch (reloadError) {
+          const reloadMessage = reloadError instanceof Error ? reloadError.message : "Falha ao recarregar documentos";
+          setDocsStatus("error");
+          setDocsError(reloadMessage);
+        }
+        const message = error instanceof Error ? error.message : "Falha ao aplicar atualizações";
+        setDocsError(message);
+        throw error;
+      }
+    });
+  }, [enqueueMutation, persistDocs, reloadDocs]);
 
   const applyUpdate = useCallback(async (update) => {
-    const stateKey = FILE_TO_STATE[update.file];
-    if (!stateKey) return null;
+    const revisions = await applyUpdateBatch([update]);
+    return revisions[0] || null;
+  }, [applyUpdateBatch]);
 
-    // Capture the "before" state for revision ledger
-    const prevDocs = docsRef.current;
-    const before = prevDocs[stateKey] || "";
+  const clearDocs = useCallback(async () => {
+    return enqueueMutation(async () => {
+      await post("/documents/reset");
+      const loaded = await reloadDocs({ markReady: true });
+      setDocsGeneration((current) => current + 1);
+      return loaded;
+    });
+  }, [enqueueMutation, reloadDocs]);
 
-    try {
-      let newVal = "";
-      if (update.file === "progresso" && update.action === "add_progresso") {
-        const progresso = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-        const arr = JSON.parse(prevDocs.progresso || "[]");
-        arr.push({
-          id: Date.now(),
-          date: new Date().toLocaleDateString("pt-BR", { month: "short", year: "numeric" }),
-          emoji: PROGRESSO_EMOJIS[progresso.type] || "\u{1F3C6}",
-          ...progresso,
-        });
-        newVal = JSON.stringify(arr);
-      } else if (update.action === "append") {
-        const val = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
-        newVal = (prevDocs[stateKey] || "") + "\n\n" + val;
-      } else if (update.action === "replace_all") {
-        if (stateKey === "plano") {
-          let incomingObj = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-          incomingObj = applyAiOwnershipToPlanDay(incomingObj);
-          const targetDate = update.targetDate || incomingObj?.date || new Date().toLocaleDateString("pt-BR");
-          
-          let dict = {};
-          if (prevDocs.plano) {
-            try {
-              const old = JSON.parse(prevDocs.plano);
-              if (old.grupos && old.date) { dict[old.date] = old; } else { dict = old; }
-            } catch { /* Ignore malformed */ }
-          }
-          dict[targetDate] = incomingObj;
-          newVal = JSON.stringify(dict);
-        } else {
-          newVal = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
-        }
-      } else if (["append_item", "patch_item", "delete_item"].includes(update.action) && stateKey === "plano") {
-        // Granular plano updates
-        let itemData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-        const targetDate = update.targetDate || update.date || itemData.date || new Date().toLocaleDateString("pt-BR");
-        const permissionApproved = update.permissionApproved === true;
-        
-        // Ensure dict exists
-        let dict = {};
-        if (prevDocs.plano) {
-          try {
-            const old = JSON.parse(prevDocs.plano);
-            if (old.grupos && old.date) { dict[old.date] = old; } else { dict = old; }
-          } catch {}
-        }
+  const restoreDocs = useCallback(async () => {
+    return enqueueMutation(async () => {
+      await post("/documents/restore");
+      const loaded = await reloadDocs({ markReady: true });
+      setDocsGeneration((current) => current + 1);
+      return loaded;
+    });
+  }, [enqueueMutation, reloadDocs]);
 
-        // Ensure daily plan exists
-        if (!dict[targetDate]) dict[targetDate] = { date: targetDate, meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 }, grupos: [] };
-        const daily = dict[targetDate];
-
-        if (update.action === "append_item") {
-          // itemData must include { item: {...}, grupoIndex: 0 } or match by name
-          let gi = itemData.grupoIndex !== undefined ? itemData.grupoIndex : daily.grupos.findIndex(g => g.nome.toLowerCase().includes(itemData.grupoNome?.toLowerCase() || "nenhum"));
-          if (gi === -1) {
-             daily.grupos.push({ nome: itemData.grupoNome || "Adicionados", emoji: "📝", itens: [] });
-             gi = daily.grupos.length - 1;
-          }
-          if (!daily.grupos[gi].itens) daily.grupos[gi].itens = [];
-          const incomingItem = applyAiCheckedOwnership({ ...(itemData.item || {}) });
-          daily.grupos[gi].itens.push(incomingItem);
-        } else if (update.action === "patch_item" || update.action === "delete_item") {
-          // Require item.id
-          for (const g of daily.grupos) {
-            const idx = g.itens.findIndex(i => i.id === itemData.id);
-            if (idx !== -1) {
-              const currentItem = g.itens[idx];
-              if (update.action === "delete_item") {
-                if (permissionApproved || canAiMutatePlanItem(currentItem)) {
-                  g.itens.splice(idx, 1);
-                }
-              } else if (update.action === "patch_item") {
-                if (!permissionApproved && !canAiMutatePlanItem(currentItem)) {
-                  break;
-                }
-                const patch = { ...(itemData.patch || {}) };
-                if ("checked_source" in patch) delete patch.checked_source;
-                g.itens[idx] = applyAiCheckedOwnership({ ...currentItem, ...patch });
-              }
-              break;
-            }
-          }
-        }
-        
-        newVal = JSON.stringify(dict);
-      } else if (update.action === "append_micro" && stateKey === "micro") {
-        // Append text to micro without overwriting
-        const val = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
-        newVal = (prevDocs.micro || "") + "\n" + val;
-      } else if (update.action === "patch_micro" && stateKey === "micro") {
-        // If micro is plain text, just append. If JSON-like, merge fields.
-        const val = typeof update.content === "object" ? JSON.stringify(update.content) : update.content;
-        // For text-based micro, treat patch as smart append at the relevant section
-        newVal = (prevDocs.micro || "") + "\n" + val;
-      } else if (update.action === "update_calorias_day" && stateKey === "cal") {
-        // Update only one day's calorie data
-        let dayData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-        let calObj = {};
-        try { calObj = JSON.parse(prevDocs.cal || "{}"); } catch {}
-        if (!calObj.dias) calObj.dias = {};
-        const dayKey = dayData.data || new Date().toLocaleDateString("pt-BR");
-        // Merge into existing day or create new
-        calObj.dias[dayKey] = { ...(calObj.dias[dayKey] || {}), ...dayData };
-        delete calObj.dias[dayKey].data; // Remove the routing key from stored data
-        newVal = JSON.stringify(calObj);
-      } else if (update.action === "log_treino_day" && stateKey === "treinos") {
-        // Log a single training session without replacing the entire treinos object
-        let treinoData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-        let treinosObj = {};
-        try { treinosObj = JSON.parse(prevDocs.treinos || "{}"); } catch {}
-        if (!treinosObj.registros) treinosObj.registros = [];
-        treinosObj.registros.push(treinoData);
-        newVal = JSON.stringify(treinosObj);
-      } else if (update.action === "patch_coach_note" && stateKey === "plano") {
-        // Set a daily coach note on the plan without touching items
-        let noteData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-        const targetDate = update.targetDate || noteData.date || new Date().toLocaleDateString("pt-BR");
-
-        let dict = {};
-        if (prevDocs.plano) {
-          try {
-            const old = JSON.parse(prevDocs.plano);
-            if (old.grupos && old.date) { dict[old.date] = old; } else { dict = old; }
-          } catch {}
-        }
-        if (!dict[targetDate]) dict[targetDate] = { date: targetDate, meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 }, grupos: [] };
-        dict[targetDate].notaCoach = String(noteData.nota || noteData.note || "");
-        newVal = JSON.stringify(dict);
-      } else if (update.action === "append_coach_note" && stateKey === "plano") {
-        // Append only to daily coach note (focused update)
-        let noteData = typeof update.content === "string" ? JSON.parse(update.content) : update.content;
-        const targetDate = update.targetDate || noteData.date || new Date().toLocaleDateString("pt-BR");
-
-        let dict = {};
-        if (prevDocs.plano) {
-          try {
-            const old = JSON.parse(prevDocs.plano);
-            if (old.grupos && old.date) { dict[old.date] = old; } else { dict = old; }
-          } catch {}
-        }
-        if (!dict[targetDate]) dict[targetDate] = { date: targetDate, meta: { kcal: 1450, proteina_g: 115, carbo_g: 110, gordura_g: 45, fibra_g: 25 }, grupos: [] };
-        const prevNote = String(dict[targetDate].notaCoach || "");
-        const appendNote = String(noteData.nota || noteData.note || "").trim();
-        const separator = prevNote && appendNote ? "\n" : "";
-        dict[targetDate].notaCoach = `${prevNote}${separator}${appendNote}`.trim();
-        newVal = JSON.stringify(dict);
-      }
-
-      if (newVal !== undefined && newVal !== "") {
-        await saveDoc(stateKey, newVal);
-        setDocs(current => ({ ...current, [stateKey]: newVal }));
-        return { file: update.file, action: update.action, before, after: newVal };
-      }
-    } catch (e) {
-      console.error("applyUpdate error:", update.file, e);
-    }
-    return null;
-  }, [saveDoc]);
+  const contextValue = useMemo(() => ({
+    docs,
+    docsReady,
+    docsStatus,
+    docsError,
+    mutationSeq,
+    docsGeneration,
+    setDocs,
+    saveDoc,
+    mutateDocs,
+    applyUpdate,
+    applyUpdateBatch,
+    clearDocs,
+    restoreDocs,
+    reloadDocs,
+    rebuildHealthCache,
+  }), [
+    docs,
+    docsReady,
+    docsStatus,
+    docsError,
+    mutationSeq,
+    docsGeneration,
+    saveDoc,
+    mutateDocs,
+    applyUpdate,
+    applyUpdateBatch,
+    clearDocs,
+    restoreDocs,
+    reloadDocs,
+    rebuildHealthCache,
+  ]);
 
   return (
-    <DocsContext.Provider value={{ docs, docsReady, setDocs, saveDoc, applyUpdate, clearDocs, restoreDocs }}>
+    <DocsContext.Provider value={contextValue}>
       {children}
     </DocsContext.Provider>
   );

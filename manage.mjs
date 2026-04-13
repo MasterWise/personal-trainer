@@ -54,6 +54,15 @@ function checkHealth(url) {
   });
 }
 
+async function waitForHealth(url, timeoutMs = 15000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await checkHealth(url)) return true;
+    await sleep(500);
+  }
+  return false;
+}
+
 // ─── Lifecycle ───
 async function doStart(cfg) {
   const pid = readPid(cfg);
@@ -81,11 +90,24 @@ async function doStart(cfg) {
   const resolved = command === "node" ? process.execPath : command;
   const logFile = cfg.logFile ? resolve(__dirname, cfg.logFile) : null;
   let logFd = null;
-  if (logFile) try { logFd = openSync(logFile, "a"); } catch { /* ignore */ }
+  if (logFile) {
+    try {
+      logFd = openSync(logFile, "a");
+    } catch (error) {
+      console.error(`Nao foi possivel abrir logFile: ${error.message}`);
+      return;
+    }
+  }
 
   const child = spawn(resolved, args, {
     cwd: __dirname,
-    env: { ...process.env, ...env },
+    env: {
+      ...process.env,
+      PORT: String(cfg.port || process.env.PORT || 3400),
+      HOST: env.HOST || process.env.HOST || "127.0.0.1",
+      NODE_ENV: env.NODE_ENV || process.env.NODE_ENV || "production",
+      ...env,
+    },
     detached: true,
     stdio: logFd != null ? ["ignore", logFd, logFd] : "ignore",
     windowsHide: true,
@@ -103,6 +125,15 @@ async function doStart(cfg) {
       try { unlinkSync(pidPath(cfg)); } catch { /* ignore */ }
       console.error(`Erro ao iniciar: ${spawnErr.message}`);
       return;
+    }
+    if (cfg.healthUrl) {
+      const healthOk = await waitForHealth(cfg.healthUrl, 15000);
+      if (!healthOk) {
+        try { process.kill(child.pid, process.platform === "win32" ? "SIGTERM" : "SIGKILL"); } catch { /* ignore */ }
+        try { unlinkSync(pidPath(cfg)); } catch { /* ignore */ }
+        console.error("Servico nao ficou saudavel dentro do timeout.");
+        return;
+      }
     }
     console.log(`${cfg.name} iniciado (PID ${child.pid}).`);
   } else {

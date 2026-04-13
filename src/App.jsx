@@ -10,7 +10,6 @@ import {
   isClaudeResponseParseError,
   parseClaudeStructuredResponse,
 } from "./services/claudeResponseParser.js";
-import { FILE_TO_STATE, PROGRESSO_EMOJIS } from "./data/constants.js";
 import { lockPlanUpdateToDate } from "./utils/planUpdateGuard.js";
 import Header from "./components/layout/Header.jsx";
 import TabBar from "./components/layout/TabBar.jsx";
@@ -22,6 +21,7 @@ import ProgressoView from "./views/ProgressoView.jsx";
 import CadernoView from "./views/CadernoView.jsx";
 import LogsView from "./views/LogsView.jsx";
 import PerfilTab from "./components/perfil/PerfilTab.jsx";
+import { deriveHealthViewModel } from "./utils/healthModel.js";
 import "./styles/components/app-shell.css";
 import "./styles/components/header.css";
 import "./styles/components/bottom-nav.css";
@@ -186,7 +186,15 @@ function hasPlanoForDate(planoStr, dateStr) {
 ══════════════════════════════════════════════════════════════════════════ */
 export default function App() {
   const { isAuthenticated, isLoading, needsSetup } = useAuth();
-  const { docs, docsReady, setDocs, saveDoc, applyUpdate } = useDocs();
+  const {
+    docs,
+    docsReady,
+    docsStatus,
+    docsError,
+    docsGeneration,
+    mutateDocs,
+    applyUpdateBatch,
+  } = useDocs();
   const [activeTab, setActiveTab] = useState("chat");
   const [planoDate, setPlanoDate] = useState(new Date().toLocaleDateString("pt-BR"));
   const [messages, setMessages] = useState([]);
@@ -252,12 +260,25 @@ export default function App() {
     return () => { cancelled = true; };
   }, [isAuthenticated]);
 
+  useEffect(() => {
+    if (!isAuthenticated || docsGeneration === 0) return;
+    cliSessionIdRef.current = crypto.randomUUID();
+    setMessages([]);
+    setCurrentConvoId(null);
+    setCurrentConvoMeta(DEFAULT_CONVO_META);
+    setChatReadOnly(false);
+    setShowHistory(false);
+    setShowPlanHistory(false);
+    setActiveTab("chat");
+  }, [docsGeneration, isAuthenticated]);
+
   // Save messages to backend whenever they change
   useEffect(() => {
-    if (!isAuthenticated || messages.length === 0) return;
+    if (!isAuthenticated || (!currentConvoId && messages.length === 0)) return;
     const timer = setTimeout(() => {
       put("/conversations/current", {
-        messages: messages.slice(-60),
+        conversationId: currentConvoId,
+        messages,
         meta: currentConvoMeta,
       }).then((res) => {
         if (res?.id) setCurrentConvoId(res.id);
@@ -362,14 +383,17 @@ export default function App() {
     );
     const parsed = parseClaudeStructuredResponse(data);
 
-    const appliedUpdates = [];
+    let appliedUpdates = [];
     const planDateLock = contextOpts.conversationType === "plan" ? (contextOpts.planDate || planoDate) : null;
     const allowPlanReplaceAll = options.autoAction === "generate_plan" || options.autoAction === "new_plan";
+    const guardedUpdates = [];
     for (const u of (parsed.updates || []).filter(u => !u.requiresPermission)) {
       const guardedUpdate = lockPlanUpdateToDate(u, planDateLock, docs.plano, { allowPlanReplaceAll });
-      if (!guardedUpdate) continue;
-      const revision = await applyUpdate(guardedUpdate);
-      if (revision) appliedUpdates.push(revision);
+      if (guardedUpdate) guardedUpdates.push(guardedUpdate);
+    }
+
+    if (guardedUpdates.length > 0) {
+      appliedUpdates = await applyUpdateBatch(guardedUpdates);
     }
 
     return {
@@ -529,6 +553,8 @@ export default function App() {
     setRemovingPlan(true);
     try {
       let planoDict = {};
+      let calObj = {};
+      let treinosObj = {};
       try {
         const parsed = JSON.parse(docs.plano || "{}");
         if (parsed && parsed.grupos) {
@@ -540,16 +566,44 @@ export default function App() {
       } catch {
         planoDict = {};
       }
+      try {
+        calObj = JSON.parse(docs.cal || "{}");
+      } catch {
+        calObj = {};
+      }
+      try {
+        treinosObj = JSON.parse(docs.treinos || "{}");
+      } catch {
+        treinosObj = {};
+      }
 
       if (!planoDict?.[planoDate]) {
         return false;
       }
 
-      delete planoDict[planoDate];
-      const nextPlano = JSON.stringify(planoDict);
-      setDocs(prev => ({ ...prev, plano: nextPlano }));
-      await saveDoc("plano", nextPlano);
-      return true;
+      const result = await mutateDocs((prevDocs) => {
+        const nextDict = JSON.parse(JSON.stringify(planoDict));
+        delete nextDict[planoDate];
+        const nextCal = { ...(calObj || {}) };
+        if (nextCal.dias && typeof nextCal.dias === "object") {
+          delete nextCal.dias[planoDate];
+        }
+        const nextTreinos = {
+          ...(treinosObj || {}),
+          registros: Array.isArray(treinosObj.registros)
+            ? treinosObj.registros.filter((entry) => entry?.data !== planoDate)
+            : [],
+        };
+        return {
+          ...prevDocs,
+          plano: JSON.stringify(nextDict),
+          cal: JSON.stringify(nextCal),
+          treinos: JSON.stringify(nextTreinos),
+        };
+      }, {
+        rebuildHealthCache: true,
+      });
+      return result.changedKeys.length > 0;
     } catch (e) {
       console.error("removePlanForSelectedDate:", e);
       return false;
@@ -560,115 +614,74 @@ export default function App() {
 
 
   async function handleToggleItem(itemId) {
-    let planoDict;
-    try { planoDict = JSON.parse(docs.plano); } catch { return; }
-    
-    // Migrate old flat format on the fly
-    if (planoDict.grupos) {
-      const oldDate = planoDict.date || planoDate;
-      planoDict = { [oldDate]: planoDict };
-    }
-
-    const planoObj = planoDict[planoDate];
-    if (!planoObj?.grupos) return;
-
-    let targetItem = null;
-    for (const g of planoObj.grupos) {
-      for (const item of g.itens) {
-        if (item.id === itemId) { targetItem = item; break; }
+    await mutateDocs((prevDocs) => {
+      let planoDict;
+      try {
+        planoDict = JSON.parse(prevDocs.plano || "{}");
+      } catch {
+        return prevDocs;
       }
-      if (targetItem) break;
-    }
-    if (!targetItem) return;
 
-    const newChecked = !targetItem.checked;
-    targetItem.checked = newChecked;
-    if (newChecked) {
-      targetItem.checked_source = "user";
-    } else {
-      delete targetItem.checked_source;
-    }
+      if (planoDict.grupos) {
+        const oldDate = planoDict.date || planoDate;
+        planoDict = { [oldDate]: planoDict };
+      }
 
-    const newPlano = JSON.stringify(planoDict);
-    setDocs(prev => ({ ...prev, plano: newPlano }));
-    await saveDoc("plano", newPlano);
+      const planoObj = planoDict[planoDate];
+      if (!planoObj?.grupos) return prevDocs;
 
-    if (targetItem.tipo === "alimento" && targetItem.nutri) {
-      await syncCalItem(targetItem, newChecked, planoDate);
-    } else if (targetItem.tipo === "treino") {
-      await syncTreinoItem(targetItem, newChecked, planoDate);
-    }
-  }
+      let targetItem = null;
+      for (const group of planoObj.grupos) {
+        for (const item of group.itens) {
+          if (item.id === itemId) {
+            targetItem = item;
+            break;
+          }
+        }
+        if (targetItem) break;
+      }
 
-  async function syncCalItem(item, checked, dateStr) {
-    let calObj;
-    try { calObj = JSON.parse(docs.cal || "{}"); } catch { calObj = {}; }
-    if (!calObj.dias) calObj.dias = {};
-    if (!calObj.dias[dateStr]) calObj.dias[dateStr] = { kcal_consumido: 0, proteina_g: 0, carbo_g: 0, gordura_g: 0, fibra_g: 0, refeicoes: [] };
+      if (!targetItem) return prevDocs;
 
-    const dia = calObj.dias[dateStr];
-    const n = item.nutri;
-    const sign = checked ? 1 : -1;
-
-    dia.kcal_consumido = Math.max(0, Math.round((dia.kcal_consumido || 0) + sign * (n.kcal || 0)));
-    dia.proteina_g = Math.max(0, +(((dia.proteina_g || 0) + sign * (n.proteina_g || 0)).toFixed(1)));
-    dia.carbo_g = Math.max(0, +(((dia.carbo_g || 0) + sign * (n.carbo_g || 0)).toFixed(1)));
-    dia.gordura_g = Math.max(0, +(((dia.gordura_g || 0) + sign * (n.gordura_g || 0)).toFixed(1)));
-    dia.fibra_g = Math.max(0, +(((dia.fibra_g || 0) + sign * (n.fibra_g || 0)).toFixed(1)));
-
-    if (checked) {
-      dia.refeicoes = dia.refeicoes || [];
-      dia.refeicoes.push(`${item.texto} (${n.kcal}kcal)`);
-    } else {
-      dia.refeicoes = (dia.refeicoes || []).filter(r => !r.startsWith(item.texto));
-    }
-
-    const newCal = JSON.stringify(calObj);
-    setDocs(prev => ({ ...prev, cal: newCal }));
-    await saveDoc("cal", newCal);
-  }
-
-  async function syncTreinoItem(item, checked, dateStr) {
-    let treinosObj;
-    try { treinosObj = JSON.parse(docs.treinos || "{}"); } catch { treinosObj = {}; }
-    if (!treinosObj.registros) treinosObj.registros = [];
-
-    const existingIdx = treinosObj.registros.findIndex(r => r.data === dateStr && r.tipo === (item.treino_tipo || item.texto));
-
-    if (checked) {
-      const reg = { data: dateStr, tipo: item.treino_tipo || item.texto, duracao_min: item.duracao_min || 60, realizado: true };
-      if (existingIdx >= 0) {
-        treinosObj.registros[existingIdx] = reg;
+      targetItem.checked = !targetItem.checked;
+      if (targetItem.checked) {
+        targetItem.checked_source = "user";
       } else {
-        treinosObj.registros.push(reg);
+        delete targetItem.checked_source;
       }
-    } else {
-      if (existingIdx >= 0) {
-        treinosObj.registros.splice(existingIdx, 1);
-      }
-    }
 
-    const newTreinos = JSON.stringify(treinosObj);
-    setDocs(prev => ({ ...prev, treinos: newTreinos }));
-    await saveDoc("treinos", newTreinos);
+      return {
+        ...prevDocs,
+        plano: JSON.stringify(planoDict),
+      };
+    }, {
+      rebuildHealthCache: true,
+    });
   }
 
   async function savePerfil(json) {
-    setDocs(prev => ({ ...prev, perfil: json }));
-    await saveDoc("perfil", json);
+    await mutateDocs((prevDocs) => ({ ...prevDocs, perfil: json }), {
+      rebuildHealthCache: true,
+    });
   }
   async function saveMacro(text) {
-    setDocs(prev => ({ ...prev, macro: text }));
-    await saveDoc("macro", text);
+    await mutateDocs((prevDocs) => ({ ...prevDocs, macro: text }));
   }
   async function saveMicro(text) {
-    setDocs(prev => ({ ...prev, micro: text }));
-    await saveDoc("micro", text);
+    await mutateDocs((prevDocs) => ({ ...prevDocs, micro: text }));
   }
 
   if (isLoading) return <LoadingScreen />;
   if (needsSetup) return <SetupForm />;
   if (!isAuthenticated) return <LoginForm />;
+
+  const healthViewModel = deriveHealthViewModel({
+    planoStr: docs.plano,
+    perfilStr: docs.perfil,
+    treinosStr: docs.treinos,
+    calStr: docs.cal,
+    selectedDate: planoDate,
+  });
 
   const renderView = () => {
     return (
@@ -676,10 +689,11 @@ export default function App() {
         <div style={{ display: activeTab === "chat" ? "block" : "none", height: "100%", width: "100%" }}>
           <ChatTab
             docs={docs}
-            setDocs={setDocs}
             messages={messages}
             setMessages={setMessages}
             docsReady={docsReady}
+            docsStatus={docsStatus}
+            docsError={docsError}
             setTab={setActiveTab}
             onGeneratePlan={generatePlan}
             generating={generating}
@@ -711,7 +725,13 @@ export default function App() {
             setSelectedDate={setPlanoDate}
           />
         )}
-        {activeTab === "saude" && <SaudeView cal={docs.cal} treinos={docs.treinos} />}
+        {activeTab === "saude" && (
+          <SaudeView
+            selectedDate={planoDate}
+            setSelectedDate={setPlanoDate}
+            viewModel={healthViewModel}
+          />
+        )}
         {activeTab === "progresso" && <ProgressoView progresso={docs.progresso} />}
         {activeTab === "caderno" && <CadernoView hist={docs.hist} mem={docs.mem} macro={docs.macro} micro={docs.micro} />}
         {activeTab === "perfil" && <PerfilTab perfil={docs.perfil} onSave={savePerfil} macro={docs.macro} micro={docs.micro} onSaveMacro={saveMacro} onSaveMicro={saveMicro} />}
@@ -722,7 +742,14 @@ export default function App() {
 
   return (
     <div className="pt-app">
-      <Header docsReady={docsReady} onHistory={() => setShowHistory(true)} onNewConvo={startNewConvo} hasMessages={messages.length > 0} />
+      <Header
+        docsReady={docsReady}
+        docsStatus={docsStatus}
+        docsError={docsError}
+        onHistory={() => setShowHistory(true)}
+        onNewConvo={startNewConvo}
+        hasMessages={messages.length > 0}
+      />
       <div className="pt-content">
         {renderView()}
       </div>

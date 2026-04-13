@@ -26,6 +26,7 @@ const DEV_ALLOWED_ORIGINS = [
 ];
 
 const NGROK_ORIGIN_REGEX = /^https:\/\/[a-z0-9-]+\.ngrok-free\.app$/i;
+const CSP_REPORT_ONLY = process.env.CSP_REPORT_ONLY !== "false";
 
 function getAllowedOrigins() {
   return (process.env.CORS_ALLOWED_ORIGINS || "")
@@ -64,7 +65,19 @@ export async function createApp(options = {}) {
   // Middleware
   app.use(
     helmet({
-      contentSecurityPolicy: false,
+      contentSecurityPolicy: isProd ? {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+          fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+          imgSrc: ["'self'", "data:", "blob:"],
+          connectSrc: ["'self'"],
+          manifestSrc: ["'self'"],
+          workerSrc: ["'self'", "blob:"],
+        },
+        reportOnly: CSP_REPORT_ONLY,
+      } : false,
       crossOriginEmbedderPolicy: false,
       hsts: isProd
         ? { maxAge: 15552000, includeSubDomains: true }
@@ -144,24 +157,24 @@ export async function createApp(options = {}) {
   } else {
     // Production mode: serve static files
     const distPath = path.join(__dirname, "dist");
-    const publicPath = path.join(__dirname, "public");
-
-    if (fs.existsSync(distPath)) {
-      app.use(express.static(distPath));
-      app.use("/pt", express.static(distPath));
-      console.log("Servindo build Vite de /dist");
-    } else {
-      app.use(express.static(publicPath));
-      app.use("/pt", express.static(publicPath));
-      console.log("Servindo versao estatica de /public");
+    if (!fs.existsSync(distPath)) {
+      throw new Error("Build de producao ausente em /dist. Execute o build antes de subir o servico.");
     }
+
+    app.use(express.static(distPath));
+    app.use("/pt", express.static(distPath));
+    console.log("Servindo build Vite de /dist");
+
+    app.use("/api", (req, res) => {
+      res.status(404).json({ error: "Rota de API nao encontrada" });
+    });
 
     // SPA catch-all
     app.get("*", (req, res) => {
-      const indexPath = fs.existsSync(distPath)
-        ? path.join(distPath, "index.html")
-        : path.join(publicPath, "index.html");
-      res.sendFile(indexPath);
+      if (req.originalUrl.startsWith("/api/")) {
+        return res.status(404).json({ error: "Rota de API nao encontrada" });
+      }
+      return res.sendFile(path.join(distPath, "index.html"));
     });
   }
 

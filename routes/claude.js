@@ -8,6 +8,16 @@ const AI_GATEWAY_URL = process.env.AI_GATEWAY_URL || "http://localhost:3500";
 const REASONING_EFFORT = process.env.REASONING_EFFORT || null;
 const MAX_INPUT_TOKENS = parseInt(process.env.MAX_INPUT_TOKENS || "0", 10) || null;
 const MAX_OUTPUT_TOKENS = parseInt(process.env.MAX_OUTPUT_TOKENS || "0", 10) || null;
+const ALLOW_DEBUG_AI_LOGS = process.env.ALLOW_DEBUG_AI_LOGS === "true";
+
+function redactSensitive(value) {
+  return JSON.stringify(value, (key, current) => {
+    if (["password", "authorization", "Authorization", "_sessionId", "secret"].includes(key)) {
+      return "[REDACTED]";
+    }
+    return current;
+  });
+}
 
 export default function claudeRoutes() {
   const router = Router();
@@ -16,6 +26,7 @@ export default function claudeRoutes() {
   router.post("/api/claude", authMiddleware, claudeRateLimit, async (req, res) => {
     const startTime = Date.now();
     const debugMode = req.headers["x-debug-log"] === "true";
+    const allowDetailedDebug = debugMode && (process.env.NODE_ENV !== "production" || ALLOW_DEBUG_AI_LOGS);
 
     try {
       const { system, messages, output_config, _sessionId, interaction_context } = req.body;
@@ -75,18 +86,18 @@ export default function claudeRoutes() {
 
       if (!response.ok) {
         // Log error if debug mode
-        if (debugMode && req.user?.id) {
+        if (allowDetailedDebug && req.user?.id) {
           try {
             stmts.insertAiLog.run(
               crypto.randomUUID(), req.user.id, new Date().toISOString(),
               system || null, system?.length || 0,
-              JSON.stringify(messages),
+              redactSensitive(messages),
               messages.length,
               null, 0, null,
-              JSON.stringify(data), null, null, null, 0,
+              redactSensitive(data), null, null, null, 0,
               null, null, null, durationMs,
               0, data.error || `HTTP ${response.status}`,
-              JSON.stringify(gatewayPayload)
+              redactSensitive(gatewayPayload)
             );
           } catch (e) { console.error("[Debug Log Error]", e); }
         }
@@ -95,7 +106,7 @@ export default function claudeRoutes() {
       }
 
       // Log success if debug mode
-      if (debugMode && req.user?.id) {
+      if (allowDetailedDebug && req.user?.id) {
         try {
           let replyText = null;
           let updatesJson = null;
@@ -128,15 +139,15 @@ export default function claudeRoutes() {
           stmts.insertAiLog.run(
             crypto.randomUUID(), req.user.id, new Date().toISOString(),
             system || null, system?.length || 0,
-            JSON.stringify(messages),
+            redactSensitive(messages),
             messages.length,
             data.model || null, thinkingEnabled, null,
-            JSON.stringify(data), data.id || null,
+            redactSensitive(data), data.id || null,
             replyText, updatesJson, updatesCount,
             usage.input_tokens || null, usage.output_tokens || null,
             (usage.input_tokens || 0) + (usage.output_tokens || 0), durationMs,
             1, null,
-            JSON.stringify(gatewayPayload)
+            redactSensitive(gatewayPayload)
           );
         } catch (e) { console.error("[Debug Log Error]", e); }
       }
@@ -145,7 +156,7 @@ export default function claudeRoutes() {
     } catch (error) {
       console.error("[Server Error]", error);
 
-      if (debugMode && req.user?.id) {
+      if (allowDetailedDebug && req.user?.id) {
         try {
           stmts.insertAiLog.run(
             crypto.randomUUID(), req.user.id, new Date().toISOString(),

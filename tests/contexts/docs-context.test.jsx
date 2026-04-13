@@ -25,7 +25,7 @@ let docsApi;
 
 function Harness() {
   docsApi = useDocs();
-  return <div data-testid="docs-ready">{String(docsApi.docsReady)}</div>;
+  return <div data-testid="docs-ready">{`${docsApi.docsStatus}:${String(docsApi.docsReady)}`}</div>;
 }
 
 afterEach(() => {
@@ -61,6 +61,21 @@ describe("DocsProvider", () => {
     expect(docsApi.docs.micro).toBe("perfil sintetico");
     expect(docsApi.docs.plano).toBe("{}");
     expect(docsApi.docs.macro).toBe("");
+    expect(docsApi.docsStatus).toBe("ready");
+  });
+
+  it("mantem status de erro quando o load inicial falha", async () => {
+    mocks.get.mockRejectedValueOnce(new Error("offline"));
+
+    render(
+      <DocsProvider>
+        <Harness />
+      </DocsProvider>
+    );
+
+    await waitFor(() => expect(docsApi?.docsStatus).toBe("error"));
+    expect(docsApi.docsReady).toBe(false);
+    expect(docsApi.docsError).toContain("offline");
   });
 
   it("aplica replace_all em plano por data e preserva ownership da IA", async () => {
@@ -99,17 +114,20 @@ describe("DocsProvider", () => {
     });
 
     expect(revision).toMatchObject({ file: "plano", action: "replace_all", before: "{}" });
-    expect(mocks.put).toHaveBeenCalledWith("/documents/plano", {
-      content: expect.any(String),
-    });
+    expect(mocks.put).toHaveBeenCalledWith("/documents", expect.any(Array));
 
-    const saved = JSON.parse(mocks.put.mock.calls[0][1].content);
+    const payload = mocks.put.mock.calls[0][1];
+    const planEntry = payload.find((entry) => entry.key === "plano");
+    expect(planEntry).toBeTruthy();
+    const saved = JSON.parse(planEntry.content);
     expect(saved["12/04/2026"].grupos[0].itens[0]).toMatchObject({
       id: "i1",
       checked: true,
       checked_source: "ai",
     });
-    expect(docsApi.docs.plano).toBe(mocks.put.mock.calls[0][1].content);
+    expect(docsApi.docs.plano).toBe(planEntry.content);
+    expect(payload.some((entry) => entry.key === "cal")).toBe(true);
+    expect(payload.some((entry) => entry.key === "treinos")).toBe(true);
   });
 
   it("append_coach_note agrega a nota do dia sem sobrescrever o restante", async () => {
