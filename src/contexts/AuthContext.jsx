@@ -96,6 +96,24 @@ export function AuthProvider({ children }) {
     return me;
   }, [fetchMe]);
 
+  const register = useCallback(async (name, password, invite) => {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, password, invite }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Falha no registro");
+    }
+    const data = await res.json();
+    setAuthToken(data.token);
+    const me = await fetchMe();
+    setUser(me);
+    setNeedsSetup(false);
+    return me;
+  }, [fetchMe]);
+
   const logout = useCallback(async () => {
     try {
       const token = getAuthToken();
@@ -115,7 +133,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, needsSetup, isAuthenticated, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, needsSetup, isAuthenticated, login, signup, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

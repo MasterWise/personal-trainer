@@ -1,13 +1,126 @@
 import { useState, useEffect, useRef } from "react";
 import { useTheme } from "../../contexts/ThemeContext.jsx";
+import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useDocs } from "../../contexts/DocsContext.jsx";
+import { get, post, del } from "../../services/api.js";
 import { DIAS } from "../../data/constants.js";
 import Field from "../ui/Field.jsx";
+
+function InviteSection({ theme, sectionStyle, secTitle }) {
+  const c = theme.colors;
+  const [invites, setInvites] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [generatedLink, setGeneratedLink] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    loadInvites();
+  }, []);
+
+  async function loadInvites() {
+    try {
+      const data = await get("/admin/invites");
+      setInvites(data.invites || []);
+      setUsers(data.users || []);
+    } catch { /* ignore */ }
+  }
+
+  async function createInvite() {
+    setLoading(true);
+    try {
+      const data = await post("/admin/invites", { ttlHours: 48 });
+      const base = window.location.origin + window.location.pathname;
+      setGeneratedLink(`${base}?invite=${data.code}`);
+      setCopied(false);
+      await loadInvites();
+    } catch { /* ignore */ }
+    setLoading(false);
+  }
+
+  async function revokeInvite(code) {
+    try {
+      await del(`/admin/invites/${code}`);
+      await loadInvites();
+    } catch { /* ignore */ }
+  }
+
+  function copyLink() {
+    if (!generatedLink) return;
+    navigator.clipboard.writeText(generatedLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function formatDate(iso) {
+    if (!iso) return "";
+    return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  }
+
+  function hoursLeft(expiresAt) {
+    const ms = new Date(expiresAt) - Date.now();
+    if (ms <= 0) return "expirado";
+    const h = Math.ceil(ms / (1000 * 60 * 60));
+    return `${h}h`;
+  }
+
+  const pendingInvites = invites.filter((inv) => !inv.used_by && new Date(inv.expires_at) > new Date());
+  const usedInvites = invites.filter((inv) => inv.used_by);
+  const nonAdminUsers = users.filter((u) => !u.is_admin);
+
+  return (
+    <div style={sectionStyle}>
+      {secTitle("👥", "Usuários")}
+
+      <button onClick={createInvite} disabled={loading}
+        style={{ width: "100%", padding: "12px", background: `${c.primary}12`, border: `1.5px dashed ${c.primary}40`, borderRadius: "12px", fontFamily: theme.font, fontSize: "13px", fontWeight: "600", color: c.primary, cursor: loading ? "not-allowed" : "pointer", marginBottom: "14px" }}>
+        {loading ? "Gerando..." : "+ Convidar usuário"}
+      </button>
+
+      {generatedLink && (
+        <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: "12px", padding: "14px", marginBottom: "14px" }}>
+          <p style={{ fontFamily: theme.font, color: c.text, fontSize: "13px", fontWeight: "600", marginBottom: "8px" }}>Convite gerado!</p>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <input readOnly value={generatedLink} style={{ flex: 1, padding: "8px 10px", background: c.surface, border: `1px solid ${c.border}`, borderRadius: "8px", fontFamily: theme.font, fontSize: "11px", color: c.textSecondary, outline: "none", minWidth: 0 }} />
+            <button onClick={copyLink} style={{ padding: "8px 14px", background: copied ? "#5A9A5A" : c.primary, border: "none", borderRadius: "8px", fontFamily: theme.font, fontSize: "12px", fontWeight: "700", color: "#FFF", cursor: "pointer", flexShrink: 0, transition: "background 0.2s" }}>
+              {copied ? "✓" : "📋"}
+            </button>
+          </div>
+          <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "11px", marginTop: "6px" }}>Expira em 48h. Uso único.</p>
+          <button onClick={() => setGeneratedLink(null)} style={{ background: "none", border: "none", color: c.textMuted, fontFamily: theme.font, fontSize: "11px", cursor: "pointer", padding: 0, marginTop: "4px" }}>Fechar</button>
+        </div>
+      )}
+
+      {nonAdminUsers.length > 0 && nonAdminUsers.map((u) => (
+        <div key={u.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${c.border}` }}>
+          <span style={{ fontFamily: theme.font, color: c.text, fontSize: "13px" }}>{u.name}</span>
+          <span style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "11px" }}>criado {formatDate(u.created_at)}</span>
+        </div>
+      ))}
+
+      {pendingInvites.length > 0 && pendingInvites.map((inv) => (
+        <div key={inv.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${c.border}` }}>
+          <span style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px" }}>
+            Código {inv.code.slice(0, 4)}… — pendente ({hoursLeft(inv.expires_at)})
+          </span>
+          <button onClick={() => revokeInvite(inv.code)} style={{ background: "none", border: "none", color: c.danger || "#C05A3A", fontFamily: theme.font, fontSize: "11px", fontWeight: "600", cursor: "pointer" }}>revogar</button>
+        </div>
+      ))}
+
+      {nonAdminUsers.length === 0 && pendingInvites.length === 0 && (
+        <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px", textAlign: "center", padding: "8px 0" }}>Nenhum usuário convidado ainda.</p>
+      )}
+    </div>
+  );
+}
 
 export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, onSaveMicro }) {
   const { theme } = useTheme();
   const c = theme.colors;
+  const { user } = useAuth();
   const { clearDocs, restoreDocs } = useDocs();
+  const isAdmin = !!user?.isAdmin;
   const [p, setP] = useState({});
   const [modal, setModal] = useState(null);
   const [modalText, setModalText] = useState("");
@@ -190,6 +303,9 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
             <Field label="Notas livres para o coach" value={p.notas_livres || ""} onChange={v => set("notas_livres", v)} multiline hint="Contexto extra, situações pontuais, recados diretos ao coach." />
           </div>
         </div>
+
+        {/* Usuários (admin only) */}
+        {isAdmin && <InviteSection theme={theme} sectionStyle={sectionStyle} secTitle={secTitle} />}
 
         {/* Gerenciar dados */}
         <div style={sectionStyle}>

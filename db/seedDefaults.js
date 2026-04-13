@@ -26,6 +26,28 @@ export function seedUserDefaults(userId) {
   console.log(`[Seed] Documentos padrao criados para usuario ${userId}`);
 }
 
+export function seedEmptyDefaults(userId) {
+  const now = new Date().toISOString();
+
+  const emptyDocs = [
+    { key: "micro", content: "" },
+    { key: "mem", content: "" },
+    { key: "hist", content: "" },
+    { key: "plano", content: "{}" },
+    { key: "progresso", content: "[]" },
+    { key: "cal", content: JSON.stringify({ meta_diaria: { kcal: 1800, proteina_g: 100, carbo_g: 200, gordura_g: 60, fibra_g: 25 }, dias: {} }) },
+    { key: "treinos", content: JSON.stringify({ planejados: {}, registros: [] }) },
+    { key: "perfil", content: "{}" },
+    { key: "macro", content: "" },
+  ];
+
+  for (const { key, content } of emptyDocs) {
+    stmts.upsertDoc.run(userId, key, content, now);
+  }
+
+  console.log(`[Seed] Documentos vazios criados para usuario ${userId}`);
+}
+
 export function clearUserDocuments(userId) {
   const now = new Date().toISOString();
 

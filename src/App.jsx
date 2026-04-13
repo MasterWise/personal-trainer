@@ -102,6 +102,90 @@ function LoginForm() {
   );
 }
 
+function RegisterForm() {
+  const { register } = useAuth();
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [inviteInfo, setInviteInfo] = useState(null);
+  const [inviteError, setInviteError] = useState(null);
+  const [showLogin, setShowLogin] = useState(false);
+
+  const inviteCode = new URLSearchParams(window.location.search).get("invite");
+
+  useEffect(() => {
+    if (!inviteCode) {
+      setInviteError("Nenhum código de convite informado");
+      return;
+    }
+    fetch(`/api/pt/auth/invite/${encodeURIComponent(inviteCode)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.valid) {
+          setInviteInfo(data);
+        } else {
+          setInviteError(
+            data.reason === "used" ? "Este convite já foi utilizado"
+            : data.reason === "expired" ? "Este convite expirou"
+            : "Convite inválido"
+          );
+        }
+      })
+      .catch(() => setInviteError("Erro ao validar convite"));
+  }, [inviteCode]);
+
+  if (showLogin) return <LoginForm />;
+
+  if (inviteError) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", padding: "24px", background: "var(--pt-color-bg)" }}>
+        <div style={{ width: "64px", height: "64px", borderRadius: "20px", background: "linear-gradient(135deg, var(--pt-color-primary-light), var(--pt-color-primary))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "28px", marginBottom: "20px", boxShadow: "0 6px 24px rgba(184,120,80,0.3)" }}>🌿</div>
+        <h1 style={{ fontFamily: "var(--pt-font-heading)", color: "var(--pt-color-text)", marginBottom: "6px", fontSize: "1.3rem" }}>Convite inválido</h1>
+        <p style={{ color: "var(--pt-color-text-muted)", marginBottom: "24px", fontSize: "14px", textAlign: "center", lineHeight: "1.6" }}>{inviteError}<br />Peça um novo convite ao administrador.</p>
+        <button onClick={() => setShowLogin(true)} style={{ background: "none", border: "none", color: "var(--pt-color-primary)", fontFamily: "var(--pt-font-body)", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}>
+          Já tem conta? Entrar
+        </button>
+      </div>
+    );
+  }
+
+  if (!inviteInfo) return <LoadingScreen />;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      await register(name, password, inviteCode);
+      window.history.replaceState({}, "", window.location.pathname);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", padding: "24px", background: "var(--pt-color-bg)" }}>
+      <div style={{ width: "64px", height: "64px", borderRadius: "20px", background: "linear-gradient(135deg, var(--pt-color-primary-light), var(--pt-color-primary))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "28px", marginBottom: "20px", boxShadow: "0 6px 24px rgba(184,120,80,0.3)" }}>🌿</div>
+      <h1 style={{ fontFamily: "var(--pt-font-heading)", color: "var(--pt-color-text)", marginBottom: "6px", fontSize: "1.5rem" }}>Criar sua conta</h1>
+      <p style={{ color: "var(--pt-color-text-muted)", marginBottom: "24px", fontSize: "14px", textAlign: "center" }}>Convite de <strong>{inviteInfo.createdBy}</strong></p>
+      <form onSubmit={handleSubmit} style={{ width: "100%", maxWidth: "320px", display: "flex", flexDirection: "column", gap: "12px" }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" required style={{ padding: "12px 16px", borderRadius: "12px", border: "1px solid var(--pt-color-border)", background: "var(--pt-color-surface)", fontFamily: "var(--pt-font-body)", fontSize: "14px", color: "var(--pt-color-text)", outline: "none" }} />
+        <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Senha" required minLength={4} style={{ padding: "12px 16px", borderRadius: "12px", border: "1px solid var(--pt-color-border)", background: "var(--pt-color-surface)", fontFamily: "var(--pt-font-body)", fontSize: "14px", color: "var(--pt-color-text)", outline: "none" }} />
+        {error && <p style={{ color: "var(--pt-color-danger)", fontSize: "13px" }}>{error}</p>}
+        <button type="submit" disabled={loading} style={{ padding: "12px", borderRadius: "12px", border: "none", background: "var(--pt-color-primary)", color: "#FFF", fontFamily: "var(--pt-font-body)", fontWeight: 700, fontSize: "15px", cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
+          {loading ? "Criando..." : "Criar conta"}
+        </button>
+      </form>
+      <button onClick={() => setShowLogin(true)} style={{ background: "none", border: "none", color: "var(--pt-color-primary)", fontFamily: "var(--pt-font-body)", fontSize: "13px", fontWeight: "600", cursor: "pointer", marginTop: "16px" }}>
+        Já tem conta? Entrar
+      </button>
+    </div>
+  );
+}
+
 function LoadingScreen() {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "var(--pt-color-bg)", gap: "16px" }}>
@@ -673,6 +757,9 @@ export default function App() {
 
   if (isLoading) return <LoadingScreen />;
   if (needsSetup) return <SetupForm />;
+
+  const hasInviteParam = new URLSearchParams(window.location.search).has("invite");
+  if (!isAuthenticated && hasInviteParam) return <RegisterForm />;
   if (!isAuthenticated) return <LoginForm />;
 
   const healthViewModel = deriveHealthViewModel({

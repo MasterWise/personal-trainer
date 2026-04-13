@@ -14,7 +14,7 @@ export default function Header({ docsReady, docsStatus = "loading", docsError = 
     <div className="pt-header">
       <div className="pt-header__avatar">🌿</div>
       <div className="pt-header__info">
-        <div className="pt-header__name">Coach Renata</div>
+        <div className="pt-header__name">Coach</div>
         <div className="pt-header__status" title={docsError || statusText}>
           <span className="pt-header__status-dot" style={{ background: statusColor }} />
           {statusText}

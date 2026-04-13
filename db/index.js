@@ -225,6 +225,19 @@ const stmts = {
   ),
   getAiLog: db.prepare("SELECT * FROM ai_logs WHERE id = ? AND user_id = ?"),
   deleteAiLogs: db.prepare("DELETE FROM ai_logs WHERE user_id = ?"),
+
+  // Invites
+  insertInvite: db.prepare(`
+    INSERT INTO invites (code, created_by, created_at, expires_at)
+    VALUES (?, ?, ?, ?)
+  `),
+  getInvite: db.prepare("SELECT * FROM invites WHERE code = ?"),
+  markInviteUsed: db.prepare("UPDATE invites SET used_by = ?, used_at = ? WHERE code = ?"),
+  listInvitesByCreator: db.prepare(
+    "SELECT code, created_at, expires_at, used_by, used_at FROM invites WHERE created_by = ? ORDER BY created_at DESC LIMIT 50"
+  ),
+  deleteInvite: db.prepare("DELETE FROM invites WHERE code = ? AND created_by = ? AND used_by IS NULL"),
+  listAllUsers: db.prepare("SELECT id, name, is_admin, created_at FROM users ORDER BY created_at ASC"),
 };
 
 export { db, stmts, withTransaction };
