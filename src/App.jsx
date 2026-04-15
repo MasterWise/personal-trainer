@@ -767,6 +767,7 @@ export default function App() {
         } else {
           medidasArr.push(medida);
         }
+        if (medidasArr.length > 365) medidasArr.splice(0, medidasArr.length - 365);
         nextDocs.medidas = JSON.stringify(medidasArr);
       }
 
@@ -816,6 +817,8 @@ export default function App() {
       } else {
         medidasArr.push(newEntry);
       }
+
+      if (medidasArr.length > 365) medidasArr.splice(0, medidasArr.length - 365);
 
       // Also sync perfil with latest body values
       let perfil = {};

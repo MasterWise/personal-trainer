@@ -199,11 +199,25 @@ function applySingleUpdateToDocs(docs, update, batchId) {
       console.error("[DocsContext] tmb_kcal fora do range valido:", medida.tmb_kcal);
       return { nextDocs: docs, revision: null };
     }
+    // Sanitize notas (defense-in-depth)
+    if (medida.notas != null) {
+      medida.notas = String(medida.notas).replace(/<[^>]*>/g, "").slice(0, 500);
+    }
+
     const arr = parseArray(before);
-    arr.push({
-      data: medida.data || new Date().toLocaleDateString("pt-BR"),
-      ...medida,
-    });
+    // Dedup: merge with existing entry for same date + same method
+    const entryDate = medida.data || new Date().toLocaleDateString("pt-BR");
+    const entryMetodo = medida.metodo || "ai";
+    const existingIdx = arr.findIndex(m => m.data === entryDate && m.metodo === entryMetodo);
+    if (existingIdx >= 0) {
+      arr[existingIdx] = { ...arr[existingIdx], ...medida, data: entryDate };
+    } else {
+      arr.push({ data: entryDate, ...medida });
+    }
+    // Cap at 365 entries (keep most recent)
+    if (arr.length > 365) {
+      arr.splice(0, arr.length - 365);
+    }
     newVal = JSON.stringify(arr);
 
     // Sync perfil with latest body values from AI medida

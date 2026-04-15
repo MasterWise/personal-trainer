@@ -286,7 +286,7 @@ export default function SaudeView({ selectedDate, setSelectedDate, viewModel, me
               </p>
 
               {latest && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "14px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px", marginBottom: "14px" }}>
                   <div style={{ padding: "10px 12px", background: c.bg, borderRadius: "12px" }}>
                     <div style={{ fontFamily: theme.font, fontSize: "10px", color: c.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Peso</div>
                     <div style={{ fontFamily: theme.headingFont, fontSize: "20px", fontWeight: "700", color: c.text }}>

@@ -18,10 +18,10 @@ export default function WeightTrendChart({ entries, metaMin, metaMax, theme }) {
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
-  const weights = entries.map(e => e.peso_kg);
+  const weights = entries.map(e => Number(e.peso_kg));
   const allVals = [...weights];
-  if (metaMin) allVals.push(metaMin);
-  if (metaMax) allVals.push(metaMax);
+  if (metaMin != null) allVals.push(Number(metaMin));
+  if (metaMax != null) allVals.push(Number(metaMax));
   const yMin = Math.floor(Math.min(...allVals) - 2);
   const yMax = Math.ceil(Math.max(...allVals) + 2);
   const yRange = yMax - yMin || 1;
@@ -29,7 +29,7 @@ export default function WeightTrendChart({ entries, metaMin, metaMax, theme }) {
   const toX = (i) => PAD.left + (i / (entries.length - 1)) * plotW;
   const toY = (v) => PAD.top + plotH - ((v - yMin) / yRange) * plotH;
 
-  const points = entries.map((e, i) => ({ x: toX(i), y: toY(e.peso_kg), ...e }));
+  const points = entries.map((e, i) => ({ x: toX(i), y: toY(Number(e.peso_kg)), ...e }));
   const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
 
   // Y-axis ticks (4-5)
@@ -40,7 +40,7 @@ export default function WeightTrendChart({ entries, metaMin, metaMax, theme }) {
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }}>
       {/* Goal range band */}
-      {metaMin != null && metaMax != null && (
+      {metaMin != null && metaMax != null && Number(metaMin) <= Number(metaMax) && (
         <rect
           x={PAD.left} y={toY(metaMax)}
           width={plotW} height={toY(metaMin) - toY(metaMax)}

@@ -59,6 +59,24 @@ describe("diffPerfil", () => {
     const diff = diffPerfil(basePerfil, next);
     expect(diff.bodyChanged).toBe(false);
   });
+
+  it("handles string vs number comparison (tolerance)", () => {
+    const next = { ...basePerfil, peso_kg: "60.5" };
+    const diff = diffPerfil(basePerfil, next);
+    expect(diff.bodyChanged).toBe(false);
+  });
+
+  it("detects change above tolerance threshold (0.01)", () => {
+    const next = { ...basePerfil, peso_kg: 60.52 };
+    const diff = diffPerfil(basePerfil, next);
+    expect(diff.bodyChanged).toBe(true);
+  });
+
+  it("ignores sub-threshold change (0.005)", () => {
+    const next = { ...basePerfil, peso_kg: 60.505 };
+    const diff = diffPerfil(basePerfil, next);
+    expect(diff.bodyChanged).toBe(false);
+  });
 });
 
 describe("buildMedidaFromDiff", () => {

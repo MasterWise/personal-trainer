@@ -143,7 +143,11 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
     setTimeout(() => { setModalSaved(false); setModal(null); }, 1200);
   }
 
+  // Track external perfil prop changes vs user-initiated edits
+  const isExternalUpdate = useRef(false);
+
   useEffect(() => {
+    isExternalUpdate.current = true;
     try { setP(JSON.parse(perfil || "{}")); } catch { setP({}); }
   }, [perfil]);
 
@@ -157,7 +161,7 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
   function addTreino() { set("treinos_planejados", [...(p.treinos_planejados || []), { dia: "seg", tipo: "", duracao: "1h", horario: "18:00" }]); }
   function removeTreino(i) { set("treinos_planejados", (p.treinos_planejados || []).filter((_, j) => j !== i)); }
 
-  // Auto-save with debounce — skip the initial load
+  // Auto-save with debounce — skip initial load and external prop changes
   const isFirstRender = useRef(true);
   const [autoSaveStatus, setAutoSaveStatus] = useState(""); // "" | "saving" | "saved"
 
@@ -165,6 +169,11 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
     // Skip auto-save on first render (when perfil prop loads into p)
     if (isFirstRender.current) {
       isFirstRender.current = false;
+      return;
+    }
+    // Skip auto-save when p was set from external perfil prop change (e.g., AI sync)
+    if (isExternalUpdate.current) {
+      isExternalUpdate.current = false;
       return;
     }
     // Skip if p is empty (no data loaded yet)

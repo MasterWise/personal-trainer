@@ -36,7 +36,7 @@ export function buildResponseSchemaForInteraction(interactionMeta = {}) {
         "append_coach_note",
       ],
     },
-    content: { type: "string" },
+    content: { type: ["string", "object"] },
     requiresPermission: { type: "boolean" },
     permissionMessage: { type: "string" },
     permissionType: { type: ["string", "null"] },

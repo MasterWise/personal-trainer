@@ -51,3 +51,12 @@
 | NovaMedicaoForm inline na Saúde | Formulário expansível para registrar medições diretamente na aba Saúde |
 | Gatilhos explícitos de progresso no prompt | IA recebe lista concreta de quando criar cada tipo (Conquista, Obstáculo, Dificuldade, Mudança de fase) |
 | TagEditor como componente reutilizável | Componente de tags editáveis para arrays de strings — usado em preferências alimentares |
+| Range validation em `add_medida` | peso 0-300, gordura 0-80, tmb 0-10000 — previne dados absurdos da IA |
+| Tolerância numérica no `diffPerfil` (0.01) | Evita falsos positivos de bodyChanged quando perfil é salvo com arredondamento diferente (string vs number) |
+| Dedup de medidas por data+metodo em 3 pontos | Previne entradas duplicadas em savePerfil (perfil), addMedida (form), add_medida (IA) |
+| Limite 365 entradas em medidas (FIFO) | Evita crescimento ilimitado; entradas mais antigas descartadas automaticamente |
+| `isExternalUpdate` ref no PerfilTab | Previne auto-save cascade quando perfil é atualizado externamente (sync da IA ou formulário da Saúde) |
+| Schema `content` aceita string ou object | Handler já suportava ambos; schema atualizado para refletir realidade (`type: ["string", "object"]`) |
+| Sanitização de notas em medidas | HTML tags removidas e notas limitadas a 500 chars — defense-in-depth contra XSS |
+| `macros_alvo` e `preferencias_alimentares` no contexto da IA | Dados editáveis pelo usuário agora visíveis para a IA no user_profile |
+| Number() coercion no WeightTrendChart | Previne NaN em SVG quando peso_kg é string; guard metaMin<=metaMax na banda de meta |

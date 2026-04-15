@@ -409,6 +409,12 @@ ${(p.treinos_planejados || []).length > 0
       `- **${t.tipo}** — toda **${t.dia}**, duração **${t.duracao}**${t.horario ? ` às **${t.horario}**` : " (horário não cadastrado)"}`
     ).join("\n")
   : "- nenhum treino cadastrado"}
+
+## Metas Nutricionais (macros_alvo)
+  ${p.macros_alvo ? `kcal=${p.macros_alvo.kcal || "?"}, prot=${p.macros_alvo.proteina_g || "?"}g, carbo=${p.macros_alvo.carbo_g || "?"}g, gord=${p.macros_alvo.gordura_g || "?"}g, fibras=${p.macros_alvo.fibras_g || "?"}g` : "(não configuradas)"}
+
+## Preferências Alimentares
+  ${p.preferencias_alimentares ? `Texturas: ${(p.preferencias_alimentares.texturas_favoritas || []).join(", ") || "?"}. Gatilhos: ${(p.preferencias_alimentares.doces_gatilho || []).join(", ") || "?"}. Escapes: ${(p.preferencias_alimentares.escapes_aprovados || []).join(", ") || "?"}` : "(não configuradas)"}
   </user_profile>
 
   <document id="macro">
