@@ -852,31 +852,24 @@ export default function App() {
     toast.show("✓ Medição salva", "success");
   }
 
-  if (isLoading) return <LoadingScreen />;
-  if (needsSetup) return <SetupForm />;
-
-  const hasInviteParam = new URLSearchParams(window.location.search).has("invite");
-  if (!isAuthenticated && hasInviteParam) return <RegisterForm />;
-  if (!isAuthenticated) return <LoginForm />;
-
-  const healthViewModel = deriveHealthViewModel({
-    planoStr: docs.plano,
-    perfilStr: docs.perfil,
-    treinosStr: docs.treinos,
-    calStr: docs.cal,
-    selectedDate: planoDate,
-  });
-
   // Automatic progresso triggers from adherence data
+  // Must be BEFORE conditional returns to respect Rules of Hooks
   useEffect(() => {
-    if (!docsReady || !healthViewModel) return;
+    if (!docsReady || !isAuthenticated) return;
     const timer = setTimeout(() => {
       let medidasArr = [];
       let progressoArr = [];
       try { medidasArr = JSON.parse(docs.medidas || "[]"); } catch { /* ignore */ }
       try { progressoArr = JSON.parse(docs.progresso || "[]"); } catch { /* ignore */ }
 
-      const triggers = evaluateAdherenceTriggers(healthViewModel, medidasArr, progressoArr);
+      const vm = deriveHealthViewModel({
+        planoStr: docs.plano, perfilStr: docs.perfil,
+        treinosStr: docs.treinos, calStr: docs.cal,
+        selectedDate: planoDate,
+      });
+      if (!vm) return;
+
+      const triggers = evaluateAdherenceTriggers(vm, medidasArr, progressoArr);
       if (triggers.length > 0) {
         mutateDocs((prevDocs) => {
           let arr = [];
@@ -893,9 +886,24 @@ export default function App() {
           return { ...prevDocs, progresso: JSON.stringify(arr) };
         });
       }
-    }, 3000); // 3s debounce to avoid rapid-fire
+    }, 3000);
     return () => clearTimeout(timer);
-  }, [healthViewModel?.treinosFeitos, healthViewModel?.treinosPlanejados, docs.medidas]);
+  }, [docsReady, isAuthenticated, docs.plano, docs.medidas, docs.progresso]);
+
+  if (isLoading) return <LoadingScreen />;
+  if (needsSetup) return <SetupForm />;
+
+  const hasInviteParam = new URLSearchParams(window.location.search).has("invite");
+  if (!isAuthenticated && hasInviteParam) return <RegisterForm />;
+  if (!isAuthenticated) return <LoginForm />;
+
+  const healthViewModel = deriveHealthViewModel({
+    planoStr: docs.plano,
+    perfilStr: docs.perfil,
+    treinosStr: docs.treinos,
+    calStr: docs.cal,
+    selectedDate: planoDate,
+  });
 
   const renderView = () => {
     return (
