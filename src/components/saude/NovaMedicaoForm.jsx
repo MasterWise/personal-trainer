@@ -10,12 +10,12 @@ export default function NovaMedicaoForm({ onSave, theme }) {
   const inputStyle = {
     width: "100%", padding: "8px 10px", border: `1px solid ${c.border}`,
     borderRadius: "10px", fontFamily: theme.font, fontSize: "13px",
-    background: c.bg, color: c.text, outline: "none", boxSizing: "border-box",
+    background: c.bg, color: c.text, boxSizing: "border-box",
   };
   const labelStyle = { fontFamily: theme.font, fontSize: "11px", color: c.textSecondary, fontWeight: "600", marginBottom: "4px", display: "block" };
   const fieldStyle = { marginBottom: "10px" };
 
-  function handleSave() {
+  async function handleSave() {
     const medida = {};
     if (form.peso_kg) medida.peso_kg = parseFloat(form.peso_kg);
     if (form.gordura_pct) medida.gordura_pct = parseFloat(form.gordura_pct);
@@ -29,13 +29,21 @@ export default function NovaMedicaoForm({ onSave, theme }) {
       for (const [k, v] of circEntries) medida.circunferencias[k] = parseFloat(v);
     }
 
+    // Validate circumferences
+    if (circEntries.length > 0) {
+      for (const [, v] of circEntries) {
+        const val = parseFloat(v);
+        if (val < 10 || val > 200) return;
+      }
+    }
+
     // Range validation
     if (medida.peso_kg && (medida.peso_kg <= 0 || medida.peso_kg > 300)) return;
     if (medida.gordura_pct && (medida.gordura_pct < 0 || medida.gordura_pct > 80)) return;
     if (medida.tmb_kcal && (medida.tmb_kcal <= 0 || medida.tmb_kcal > 10000)) return;
 
     if (!medida.peso_kg && !medida.gordura_pct) return; // at least one required
-    onSave(medida);
+    await onSave(medida);
     setForm({ peso_kg: "", gordura_pct: "", tmb_kcal: "", metodo: "balanca", notas: "" });
     setCirc({ cintura_cm: "", quadril_cm: "", braco_cm: "", coxa_cm: "" });
     setOpen(false);

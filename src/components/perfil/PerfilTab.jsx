@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useTheme } from "../../contexts/ThemeContext.jsx";
+import { useToast } from "../../contexts/ToastContext.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useDocs } from "../../contexts/DocsContext.jsx";
 import { get, post, del } from "../../services/api.js";
@@ -118,6 +119,7 @@ function InviteSection({ theme, sectionStyle, secTitle }) {
 
 export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, onSaveMicro }) {
   const { theme } = useTheme();
+  const toast = useToast();
   const c = theme.colors;
   const { user } = useAuth();
   const { clearDocs, restoreDocs } = useDocs();
@@ -163,7 +165,6 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
 
   // Auto-save with debounce — skip initial load and external prop changes
   const isFirstRender = useRef(true);
-  const [autoSaveStatus, setAutoSaveStatus] = useState(""); // "" | "saving" | "saved"
 
   useEffect(() => {
     // Skip auto-save on first render (when perfil prop loads into p)
@@ -179,11 +180,9 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
     // Skip if p is empty (no data loaded yet)
     if (!p || Object.keys(p).length === 0) return;
 
-    setAutoSaveStatus("saving");
     const timer = setTimeout(async () => {
       await onSave(JSON.stringify(p, null, 2));
-      setAutoSaveStatus("saved");
-      setTimeout(() => setAutoSaveStatus(""), 1500);
+      toast.show("✓ Perfil salvo", "success");
     }, 800);
     return () => clearTimeout(timer);
   }, [p]);
@@ -465,20 +464,6 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
           ))}
         </div>
       </div>
-
-      {/* Auto-save status indicator */}
-      {autoSaveStatus && (
-        <div style={{
-          position: "fixed", bottom: "70px", left: "50%", transform: "translateX(-50%)",
-          padding: "8px 18px", borderRadius: "20px",
-          background: autoSaveStatus === "saved" ? "#5A9A5Acc" : `${c.primary}cc`,
-          color: "#FFF", fontFamily: theme.font, fontSize: "12px", fontWeight: "700",
-          backdropFilter: "blur(6px)", boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
-          zIndex: 50, transition: "all 0.3s", pointerEvents: "none",
-        }}>
-          {autoSaveStatus === "saving" ? "💾 Salvando..." : "✓ Salvo"}
-        </div>
-      )}
 
       {/* Modal editor */}
       {modal && (

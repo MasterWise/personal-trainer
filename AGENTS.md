@@ -11,6 +11,13 @@
 - Leia [DECISIONS.md](F:/GitProjects/vps-mw-aiserver/projects/github/personal-trainer/DECISIONS.md) antes de alterar protocolo da IA, formato do plano, conversas ou persistencia de documentos.
 - Leia [HISTORY.md](F:/GitProjects/vps-mw-aiserver/projects/github/personal-trainer/HISTORY.md) antes de revisitar correcoes de prompt, cache, gateway, plano ou UI do chat.
 
+## Automatizacoes de progresso
+- `src/utils/adherenceTriggers.js` — avalia dados de saude/treino e retorna triggers automaticos de progresso (conquistas e dificuldades).
+- Regras ativas: adesao semanal >=90% (conquista), adesao <50% (dificuldade), novo menor peso em medidas (conquista).
+- Deduplicacao por `date` + `type` + `context` evita entradas repetidas.
+- Integrado em `App.jsx` via useEffect com debounce de 3s, dispara apos calculo do healthViewModel.
+- Testes em `tests/utils/adherence-triggers.test.js`.
+
 ## Excecoes locais
 - Preserve o acoplamento via ai-gateway para chamadas Claude; nao reintroduza chamadas diretas ao provider sem necessidade validada.
 - Mudancas no protocolo de `plano`, docs ou updates da IA devem continuar compativeis com structured outputs e com os guards de permissao/escopo ja adotados.

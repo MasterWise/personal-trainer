@@ -199,6 +199,14 @@ function applySingleUpdateToDocs(docs, update, batchId) {
       console.error("[DocsContext] tmb_kcal fora do range valido:", medida.tmb_kcal);
       return { nextDocs: docs, revision: null };
     }
+    if (medida.circunferencias && typeof medida.circunferencias === "object") {
+      for (const [k, v] of Object.entries(medida.circunferencias)) {
+        if (v != null && (v < 10 || v > 200)) {
+          console.error("[DocsContext] circunferencia fora do range:", k, v);
+          return { nextDocs: docs, revision: null };
+        }
+      }
+    }
     // Sanitize notas (defense-in-depth)
     if (medida.notas != null) {
       medida.notas = String(medida.notas).replace(/<[^>]*>/g, "").slice(0, 500);

@@ -1,0 +1,10 @@
+/* Global focus-visible styles for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--color-primary, #B87850);
+  outline-offset: 2px;
+}
+
+/* Remove default outline for mouse clicks (focus-visible handles keyboard) */
+:focus:not(:focus-visible) {
+  outline: none;
+}

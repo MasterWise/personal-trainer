@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "./contexts/AuthContext.jsx";
 import { useDocs } from "./contexts/DocsContext.jsx";
 import { useTheme } from "./contexts/ThemeContext.jsx";
+import { useToast } from "./contexts/ToastContext.jsx";
 import { get, put, post, del } from "./services/api.js";
 import { buildRelevantPlanContext, buildSystemInstructions, buildSystemContext } from "./data/prompts.js";
 import { sendMessage } from "./services/claudeService.js";
@@ -24,10 +25,12 @@ import PerfilTab from "./components/perfil/PerfilTab.jsx";
 import { deriveHealthViewModel } from "./utils/healthModel.js";
 import { diffPerfil, buildMedidaFromDiff, buildProgressoFromDiff } from "./utils/perfilDiff.js";
 import { PROGRESSO_EMOJIS } from "./data/constants.js";
+import { evaluateAdherenceTriggers } from "./utils/adherenceTriggers.js";
 import "./styles/components/app-shell.css";
 import "./styles/components/header.css";
 import "./styles/components/bottom-nav.css";
 import "./styles/components/chat.css";
+import "./styles/components/accessibility.css";
 
 /* ── Auth screens ── */
 function SetupForm() {
@@ -281,6 +284,7 @@ export default function App() {
     mutateDocs,
     applyUpdateBatch,
   } = useDocs();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState("chat");
   const [planoDate, setPlanoDate] = useState(new Date().toLocaleDateString("pt-BR"));
   const [messages, setMessages] = useState([]);
@@ -746,18 +750,25 @@ export default function App() {
   }
 
   async function savePerfil(json) {
+    // Pre-compute diff outside callback so we can use it for toast after await
+    let nextPerfil = {};
+    try { nextPerfil = JSON.parse(json || "{}"); } catch { /* ignore */ }
+    let prevPerfilForDiff = {};
+    try { prevPerfilForDiff = JSON.parse(docs.perfil || "{}"); } catch { /* ignore */ }
+    const diffForToast = diffPerfil(prevPerfilForDiff, nextPerfil);
+
     await mutateDocs((prevDocs) => {
       let prevPerfil = {};
-      let nextPerfil = {};
+      let nextP = {};
       try { prevPerfil = JSON.parse(prevDocs.perfil || "{}"); } catch { /* ignore */ }
-      try { nextPerfil = JSON.parse(json || "{}"); } catch { /* ignore */ }
+      try { nextP = JSON.parse(json || "{}"); } catch { /* ignore */ }
 
-      const diff = diffPerfil(prevPerfil, nextPerfil);
+      const diff = diffPerfil(prevPerfil, nextP);
       const nextDocs = { ...prevDocs, perfil: json };
 
       // Auto-create medidas entry on body data change (dedup by date)
       if (diff.bodyChanged) {
-        const medida = buildMedidaFromDiff(nextPerfil, diff.bodyDelta);
+        const medida = buildMedidaFromDiff(nextP, diff.bodyDelta);
         let medidasArr = [];
         try { medidasArr = JSON.parse(prevDocs.medidas || "[]"); } catch { /* ignore */ }
         const today = new Date().toLocaleDateString("pt-BR");
@@ -796,6 +807,10 @@ export default function App() {
     }, {
       rebuildHealthCache: true,
     });
+
+    if (diffForToast.bodyChanged) {
+      toast.show(`📊 Medida registrada: ${diffForToast.bodyDelta.peso_kg?.to || ""}kg`, "success");
+    }
   }
   async function saveMacro(text) {
     await mutateDocs((prevDocs) => ({ ...prevDocs, macro: text }));
@@ -833,6 +848,8 @@ export default function App() {
         perfil: JSON.stringify(perfil, null, 2),
       };
     }, { rebuildHealthCache: true });
+
+    toast.show("✓ Medição salva", "success");
   }
 
   if (isLoading) return <LoadingScreen />;
@@ -849,6 +866,36 @@ export default function App() {
     calStr: docs.cal,
     selectedDate: planoDate,
   });
+
+  // Automatic progresso triggers from adherence data
+  useEffect(() => {
+    if (!docsReady || !healthViewModel) return;
+    const timer = setTimeout(() => {
+      let medidasArr = [];
+      let progressoArr = [];
+      try { medidasArr = JSON.parse(docs.medidas || "[]"); } catch { /* ignore */ }
+      try { progressoArr = JSON.parse(docs.progresso || "[]"); } catch { /* ignore */ }
+
+      const triggers = evaluateAdherenceTriggers(healthViewModel, medidasArr, progressoArr);
+      if (triggers.length > 0) {
+        mutateDocs((prevDocs) => {
+          let arr = [];
+          try { arr = JSON.parse(prevDocs.progresso || "[]"); } catch { /* ignore */ }
+          const todayLabel = new Date().toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+          for (const t of triggers) {
+            arr.push({
+              id: Date.now() + Math.random(),
+              date: todayLabel,
+              emoji: PROGRESSO_EMOJIS[t.type] || "🏆",
+              ...t,
+            });
+          }
+          return { ...prevDocs, progresso: JSON.stringify(arr) };
+        });
+      }
+    }, 3000); // 3s debounce to avoid rapid-fire
+    return () => clearTimeout(timer);
+  }, [healthViewModel?.treinosFeitos, healthViewModel?.treinosPlanejados, docs.medidas]);
 
   const renderView = () => {
     return (

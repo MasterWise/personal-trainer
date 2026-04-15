@@ -79,7 +79,6 @@ export default function TagEditor({ values = [], onChange, placeholder = "Adicio
             fontSize: "12px",
             background: "transparent",
             color: c.text,
-            outline: "none",
             flex: "1", minWidth: "80px", maxWidth: "150px",
           }}
         />
