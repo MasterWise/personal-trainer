@@ -5,7 +5,8 @@ import { createClaudeRateLimit } from "../middleware/security.js";
 import { stmts } from "../db/index.js";
 
 const AI_GATEWAY_URL = process.env.AI_GATEWAY_URL || "http://localhost:3500";
-const REASONING_EFFORT = process.env.REASONING_EFFORT || null;
+const AI_MODEL = process.env.AI_MODEL || "claude-cli-sonnet";
+const REASONING_EFFORT = process.env.REASONING_EFFORT || "low";
 const MAX_INPUT_TOKENS = parseInt(process.env.MAX_INPUT_TOKENS || "0", 10) || null;
 const MAX_OUTPUT_TOKENS = parseInt(process.env.MAX_OUTPUT_TOKENS || "0", 10) || null;
 const ALLOW_DEBUG_AI_LOGS = process.env.ALLOW_DEBUG_AI_LOGS === "true";
@@ -43,6 +44,7 @@ export default function claudeRoutes() {
       // Build gateway payload
       const gatewayPayload = {
         app: "personal-trainer",
+        model: AI_MODEL,
         system,
         messages,
       };
