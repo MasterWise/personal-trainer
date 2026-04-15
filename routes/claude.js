@@ -59,7 +59,7 @@ export default function claudeRoutes() {
       if (MAX_INPUT_TOKENS) gatewayPayload.max_input_tokens = MAX_INPUT_TOKENS;
       if (MAX_OUTPUT_TOKENS) gatewayPayload.max_output_tokens = MAX_OUTPUT_TOKENS;
 
-      const GATEWAY_TIMEOUT_MS = parseInt(process.env.GATEWAY_TIMEOUT_MS || "180000", 10);
+      const GATEWAY_TIMEOUT_MS = parseInt(process.env.GATEWAY_TIMEOUT_MS || "500000", 10);
 
       let response = await fetch(`${AI_GATEWAY_URL}/api/chat`, {
         method: "POST",
