@@ -1,6 +1,10 @@
+import { useMemo } from "react";
 import { useTheme } from "../contexts/ThemeContext.jsx";
 import { parseDateBR, toDateBR } from "../utils/healthModel.js";
 import MacroBar from "../components/ui/MacroBar.jsx";
+import WeightTrendChart from "../components/saude/WeightTrendChart.jsx";
+import CircunferenciasCard from "../components/saude/CircunferenciasCard.jsx";
+import NovaMedicaoForm from "../components/saude/NovaMedicaoForm.jsx";
 
 const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 const DAY_LABELS = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -21,7 +25,7 @@ function fmtDay(dateStr) {
   return `${date.getDate()} ${MESES[date.getMonth()]}`;
 }
 
-export default function SaudeView({ selectedDate, setSelectedDate, viewModel }) {
+export default function SaudeView({ selectedDate, setSelectedDate, viewModel, medidas, perfil, onAddMedida }) {
   const { theme } = useTheme();
   const c = theme.colors;
   const {
@@ -39,6 +43,13 @@ export default function SaudeView({ selectedDate, setSelectedDate, viewModel }) 
     isCurrentWeek,
     isSelectedToday,
   } = viewModel;
+
+  const medidasArr = useMemo(() => {
+    try { return JSON.parse(medidas || "[]"); } catch { return []; }
+  }, [medidas]);
+  const perfilObj = useMemo(() => {
+    try { return JSON.parse(perfil || "{}"); } catch { return {}; }
+  }, [perfil]);
 
   const kcal = dayData.kcal_consumido || 0;
   const kcalRest = Math.max(0, meta.kcal - kcal);
@@ -238,6 +249,7 @@ export default function SaudeView({ selectedDate, setSelectedDate, viewModel }) 
             <div style={{ textAlign: "right" }}>
               <div style={{ fontFamily: theme.headingFont, color: kcalOver ? c.danger : c.primary, fontSize: "24px", fontWeight: "700", lineHeight: "1" }}>{kcal}</div>
               <div style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "11px" }}>de {meta.kcal} kcal</div>
+              <div style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "9px", fontStyle: "italic" }}>baseado no seu perfil</div>
             </div>
           </div>
 
@@ -256,6 +268,79 @@ export default function SaudeView({ selectedDate, setSelectedDate, viewModel }) 
           <MacroBar label="Gordura (g)" value={dayData.gordura_g || 0} meta={meta.gordura_g} color="#7E57C2" />
           <MacroBar label="Fibras (g)" value={dayData.fibra_g || 0} meta={meta.fibra_g} color="#8D6E63" />
         </div>
+
+        {(() => {
+          if (medidasArr.length === 0 && !onAddMedida) return null;
+
+          const latest = medidasArr.length > 0 ? medidasArr[medidasArr.length - 1] : null;
+          const previous = medidasArr.length > 1 ? medidasArr[medidasArr.length - 2] : null;
+          const pesoDelta = latest && previous && latest.peso_kg && previous.peso_kg
+            ? (latest.peso_kg - previous.peso_kg).toFixed(1) : null;
+          const gordDelta = latest && previous && latest.gordura_pct && previous.gordura_pct
+            ? (latest.gordura_pct - previous.gordura_pct).toFixed(1) : null;
+
+          return (
+            <div style={cardStyle}>
+              <p style={{ fontFamily: theme.headingFont, color: c.text, fontSize: "15px", fontWeight: "700", margin: "0 0 12px" }}>
+                📊 Composição Corporal
+              </p>
+
+              {latest && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "14px" }}>
+                  <div style={{ padding: "10px 12px", background: c.bg, borderRadius: "12px" }}>
+                    <div style={{ fontFamily: theme.font, fontSize: "10px", color: c.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Peso</div>
+                    <div style={{ fontFamily: theme.headingFont, fontSize: "20px", fontWeight: "700", color: c.text }}>
+                      {latest.peso_kg || "—"}<span style={{ fontSize: "12px", fontWeight: "400" }}>kg</span>
+                      {pesoDelta && (
+                        <span style={{ fontSize: "11px", marginLeft: "6px", color: Number(pesoDelta) <= 0 ? c.ok : c.danger }}>
+                          {Number(pesoDelta) > 0 ? "+" : ""}{pesoDelta}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontFamily: theme.font, fontSize: "10px", color: c.textMuted }}>
+                      Meta: {perfilObj.meta_peso_min || "?"}-{perfilObj.meta_peso_max || "?"}kg
+                    </div>
+                  </div>
+                  <div style={{ padding: "10px 12px", background: c.bg, borderRadius: "12px" }}>
+                    <div style={{ fontFamily: theme.font, fontSize: "10px", color: c.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Gordura</div>
+                    <div style={{ fontFamily: theme.headingFont, fontSize: "20px", fontWeight: "700", color: c.text }}>
+                      {latest.gordura_pct || "—"}<span style={{ fontSize: "12px", fontWeight: "400" }}>%</span>
+                      {gordDelta && (
+                        <span style={{ fontSize: "11px", marginLeft: "6px", color: Number(gordDelta) <= 0 ? c.ok : c.danger }}>
+                          {Number(gordDelta) > 0 ? "+" : ""}{gordDelta}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontFamily: theme.font, fontSize: "10px", color: c.textMuted }}>
+                      Meta: {"<"}{perfilObj.meta_gordura_pct || "?"}%
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <WeightTrendChart
+                entries={medidasArr.filter(m => m.peso_kg)}
+                metaMin={perfilObj.meta_peso_min}
+                metaMax={perfilObj.meta_peso_max}
+                theme={theme}
+              />
+
+              {latest?.circunferencias && Object.keys(latest.circunferencias).length > 0 && (
+                <CircunferenciasCard
+                  latest={latest.circunferencias}
+                  previous={previous?.circunferencias}
+                  theme={theme}
+                />
+              )}
+
+              {onAddMedida && (
+                <div style={{ marginTop: "14px" }}>
+                  <NovaMedicaoForm onSave={onAddMedida} theme={theme} />
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {hasWorkoutInfo && (
           <div style={cardStyle}>

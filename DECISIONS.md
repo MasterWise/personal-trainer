@@ -16,3 +16,38 @@
 | `perfil.treinos_planejados` como agenda semanal | Evita duplicidade de fonte entre Perfil e Saúde |
 | `DocsContext` com store central e mutacoes coordenadas | Evita falha silenciosa e centraliza rebuild de projeções derivadas |
 | `/api/health` como health operacional unico | Mantem simplicidade da VPS e ainda verifica SQLite + gateway |
+| `calorias` e `treinos` removidos do enum do schema | Impede que a IA envie updates diretos para documentos derivados; reforça que saúde nasce do plano |
+| Frontend guard para updates derivados | `DocsContext` descarta silenciosamente updates com file=calorias/treinos como safety net |
+| Auto-log obrigatório no prompt | Quando o usuario reporta comida/treino, a IA deve registrar no plano imediatamente (append_item/patch_item), sem esperar pedido explícito |
+| Data em conversa geral = data do app | Em conversas general, "meu plano" refere-se a data exibida no app (plan_context.date), nao amanha |
+| "Plano" = aba Plano, não conceito genérico | Quando usuario fala "atualize o plano", instrução explícita no prompt para gerar update file=plano (replace_all), não confundir com atualizar perfil/memoria |
+| Safe JSON parse em `applySingleUpdateToDocs` | 7 `JSON.parse` substituidos por `parseJson(value, null)` com fallback gracioso — previne crash por JSON malformado da IA |
+| Error handling em `rebuildHealthCache` | Adicionado try/catch + reload no rebuild de cache de saude — previne state divergence se persist falhar |
+| Reply vazia rejeitada no parser | `claudeResponseParser` agora rejeita `reply: ""` como INVALID_SCHEMA |
+| Health check usa `response.ok` | Aceita apenas 200-299 do gateway (antes aceitava 4xx/5xx) |
+| Senha minima 6 chars | Aumentado de 4 para 6 caracteres minimos no setup/registro |
+| CLI retry com backoff 500ms | Delay antes de retry e guard contra retry duplo no 410 CLI_SESSION_EXPIRED |
+| Content-Type enforcement em `/api/*` | POST/PUT/DELETE com body devem enviar application/json — protecao CSRF basica |
+| Audit logging em auth | Login OK/falho e logout registrados com JSON estruturado no console |
+| Validacao `doc_key` e `messages.length` | doc_key regex `/^[a-z0-9_-]{1,50}$/`; messages limitado a 100 por request |
+| Redaction expandida em AI logs | Set de chaves redactadas inclui token, api_key, apiKey, cookie |
+| `<raw_data>` removido do contexto | calorias_json e treinos_json removidos do prompt — dados ja derivados do plano e presentes em `<nutrition_today>` |
+| `planScopeDate` fallback para hoje | Em conversa plan sem planDate, schema usa data de hoje como fallback |
+| `maxItems: 30` no schema updates | Limita array de updates a 30 itens por resposta da IA |
+| Onboarding usa acoes incrementais | replace_all apenas na consolidacao final; turns intermediarios usam append/patch |
+| Validacao nutricional no prompt | IA deve confirmar com usuario se item reportar >1500kcal ou >100g proteina |
+| `normalizeGroupName` com accent stripping | Matching de grupo de refeicao insensivel a acentos; fallback para "Outros" |
+| Session sliding window | Sessao estendida quando ultrapassar metade do TTL — usuario ativo nao perde sessao |
+| Rate limit no ai-gateway | 30 req/min em `/api/chat` via express-rate-limit |
+| Validacao de interaction_context | Tipo string enforced e truncado em 10000 chars no gateway |
+| Documento `medidas` (10º doc_key) | Time-series estruturado para medições corporais (peso, gordura, TMB, circunferências) — substitui dados numéricos no historico |
+| `add_medida` action no schema | Permite IA registrar medições via structured output; historico passa a ser apenas qualitativo |
+| Diff automático no save do Perfil | Mudança em peso/gordura/TMB cria entrada em medidas; mudança de metas cria progresso (Mudança de fase) |
+| `macros_alvo` exposto na UI | Metas nutricionais diárias visíveis e editáveis no Perfil — antes era dado oculto |
+| `preferencias_alimentares` exposto na UI | Preferências alimentares editáveis via TagEditor no Perfil — antes invisível ao usuário |
+| `notaCoach` visível no PlanoView | Nota diária do coach expansível (read-only) no rodapé do plano — antes explicitamente oculta |
+| Migração bootstrap de medidas | Usuários existentes ganham medidas semeado do perfil no primeiro load via serializeDocsFromResponse |
+| Gráfico SVG puro para peso | WeightTrendChart sem dependências externas — linha + faixa de meta + pontos |
+| NovaMedicaoForm inline na Saúde | Formulário expansível para registrar medições diretamente na aba Saúde |
+| Gatilhos explícitos de progresso no prompt | IA recebe lista concreta de quando criar cada tipo (Conquista, Obstáculo, Dificuldade, Mudança de fase) |
+| TagEditor como componente reutilizável | Componente de tags editáveis para arrays de strings — usado em preferências alimentares |

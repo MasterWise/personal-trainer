@@ -1,7 +1,7 @@
 import { stmts } from "./index.js";
 import {
   INIT_MICRO, INIT_MEM, INIT_HIST, INIT_PLANO, INIT_PROGRESSO,
-  INIT_CAL, INIT_TREINOS, INIT_PERFIL, INIT_MACRO,
+  INIT_CAL, INIT_TREINOS, INIT_PERFIL, INIT_MACRO, INIT_MEDIDAS,
 } from "../src/data/constants.js";
 
 export function seedUserDefaults(userId) {
@@ -17,6 +17,7 @@ export function seedUserDefaults(userId) {
     { key: "treinos", content: INIT_TREINOS },
     { key: "perfil", content: INIT_PERFIL },
     { key: "macro", content: INIT_MACRO },
+    { key: "medidas", content: INIT_MEDIDAS },
   ];
 
   for (const { key, content } of defaults) {
@@ -39,6 +40,7 @@ export function seedEmptyDefaults(userId) {
     { key: "treinos", content: JSON.stringify({ planejados: {}, registros: [] }) },
     { key: "perfil", content: "{}" },
     { key: "macro", content: "" },
+    { key: "medidas", content: "[]" },
   ];
 
   for (const { key, content } of emptyDocs) {
@@ -61,6 +63,7 @@ export function clearUserDocuments(userId) {
     { key: "treinos", content: JSON.stringify({ planejados: {}, registros: [] }) },
     { key: "perfil", content: "{}" },
     { key: "macro", content: "" },
+    { key: "medidas", content: "[]" },
   ];
 
   for (const { key, content } of emptyDocs) {

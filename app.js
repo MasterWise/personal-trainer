@@ -105,6 +105,21 @@ export async function createApp(options = {}) {
   );
   app.use(express.json({ limit: "10mb" }));
 
+  // CSRF protection: reject non-JSON content types on mutations with a body.
+  // Allows empty-body POSTs (e.g., logout, reset) to pass through.
+  app.use("/api", (req, res, next) => {
+    if (["POST", "PUT", "DELETE"].includes(req.method)) {
+      const hasBody = req.headers["content-length"] && req.headers["content-length"] !== "0";
+      if (hasBody) {
+        const ct = req.headers["content-type"] || "";
+        if (!ct.includes("application/json")) {
+          return res.status(415).json({ error: "Content-Type deve ser application/json" });
+        }
+      }
+    }
+    next();
+  });
+
   // Rewrite /api/pt/* -> /api/* (acesso direto sem Caddy)
   app.use((req, res, next) => {
     if (req.path.startsWith("/api/pt/") || req.path === "/api/pt") {

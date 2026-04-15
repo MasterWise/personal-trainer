@@ -159,6 +159,63 @@ function PlanItem({ item, onToggle, theme }) {
   );
 }
 
+function CoachNoteExpander({ note, theme }) {
+  const c = theme.colors;
+  const [open, setOpen] = useState(false);
+
+  if (!note) return null;
+
+  return (
+    <div style={{ padding: "10px 16px 0" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        style={{
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 0,
+          fontFamily: theme.font,
+          fontSize: "12px",
+          fontWeight: "600",
+          color: c.primary,
+          display: "flex",
+          alignItems: "center",
+          gap: "4px",
+        }}
+      >
+        <span style={{
+          display: "inline-block",
+          transition: "transform 0.2s",
+          transform: open ? "rotate(90deg)" : "rotate(0deg)",
+          fontSize: "11px",
+        }}>
+          ▸
+        </span>
+        {open ? "Ocultar nota do coach" : "Ver nota do coach"}
+      </button>
+      {open && (
+        <div style={{
+          marginTop: "8px",
+          padding: "10px 14px",
+          background: `${c.primary}08`,
+          border: `1px solid ${c.primary}20`,
+          borderRadius: "12px",
+          fontFamily: theme.font,
+          fontSize: "13px",
+          lineHeight: "1.55",
+          color: c.textSecondary,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        }}>
+          {note}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GrupoCard({ grupo, onToggle, theme }) {
   const c = theme.colors;
   const itens = grupo.itens || [];
@@ -282,6 +339,9 @@ export default function PlanoView({
             {planoObj.grupos.map((grupo, i) => (
               <GrupoCard key={grupo.nome + i} grupo={grupo} onToggle={onToggleItem} theme={theme} />
             ))}
+            {planoObj.notaCoach && (
+              <CoachNoteExpander note={planoObj.notaCoach} theme={theme} />
+            )}
             <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px", textAlign: "center", marginTop: "14px" }}>
               ✏️ Marque itens conforme realiza. O coach atualiza o plano pelo chat.
             </p>

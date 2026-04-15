@@ -10,9 +10,11 @@ const MAX_INPUT_TOKENS = parseInt(process.env.MAX_INPUT_TOKENS || "0", 10) || nu
 const MAX_OUTPUT_TOKENS = parseInt(process.env.MAX_OUTPUT_TOKENS || "0", 10) || null;
 const ALLOW_DEBUG_AI_LOGS = process.env.ALLOW_DEBUG_AI_LOGS === "true";
 
+const REDACT_KEYS = new Set(["password", "authorization", "Authorization", "_sessionId", "secret", "token", "api_key", "apiKey", "cookie"]);
+
 function redactSensitive(value) {
   return JSON.stringify(value, (key, current) => {
-    if (["password", "authorization", "Authorization", "_sessionId", "secret"].includes(key)) {
+    if (REDACT_KEYS.has(key)) {
       return "[REDACTED]";
     }
     return current;
@@ -33,6 +35,9 @@ export default function claudeRoutes() {
 
       if (!messages || !Array.isArray(messages)) {
         return res.status(400).json({ error: 'Campo "messages" e obrigatorio e deve ser um array' });
+      }
+      if (messages.length > 100) {
+        return res.status(400).json({ error: "Limite de 100 mensagens por request" });
       }
 
       // Build gateway payload
@@ -66,12 +71,13 @@ export default function claudeRoutes() {
       // CLI session expired (gateway restarted or TTL eviction): retry as first turn.
       // Keep _sessionId so the new session is stored under the original key (next turn
       // finds it → isResume=true). Add _sessionExpiredRetry to bypass expiry check.
-      if (response.status === 410) {
+      if (response.status === 410 && !gatewayPayload._sessionExpiredRetry) {
         const errData = await response.json().catch(() => ({}));
         if (errData?.code === "CLI_SESSION_EXPIRED") {
           console.warn("[claude] CLI session expired, retrying as first turn");
           delete gatewayPayload.interaction_context;
           gatewayPayload._sessionExpiredRetry = true;
+          await new Promise(r => setTimeout(r, 500));
           response = await fetch(`${AI_GATEWAY_URL}/api/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },

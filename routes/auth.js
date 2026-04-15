@@ -35,8 +35,8 @@ export default function authRoutes() {
         return res.status(400).json({ error: "Nome e senha sao obrigatorios" });
       }
 
-      if (password.length < 4) {
-        return res.status(400).json({ error: "Senha deve ter pelo menos 4 caracteres" });
+      if (password.length < 6) {
+        return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres" });
       }
 
       const { count } = stmts.countUsers.get();
@@ -97,6 +97,7 @@ export default function authRoutes() {
       }
 
       if (!verifyPassword(password, user.password_hash)) {
+        console.log(JSON.stringify({ event: "auth.login_failed", name, at: new Date().toISOString() }));
         return res.status(401).json({ error: "Senha incorreta" });
       }
 
@@ -113,6 +114,7 @@ export default function authRoutes() {
           isAdmin: !!user.is_admin,
         }
       });
+      console.log(JSON.stringify({ event: "auth.login", userId: user.id, at: new Date().toISOString() }));
 
     } catch (error) {
       console.error("[Auth Error][Login]", error);
@@ -124,6 +126,7 @@ export default function authRoutes() {
   router.post("/api/auth/logout", authMiddleware, (req, res) => {
     try {
       stmts.deleteSession.run(req.sessionId);
+      console.log(JSON.stringify({ event: "auth.logout", userId: req.user.id, at: new Date().toISOString() }));
       res.json({ ok: true });
     } catch (error) {
       console.error("[Auth Error][Logout]", error);
@@ -157,8 +160,8 @@ export default function authRoutes() {
         return res.status(400).json({ error: "Nome, senha e codigo de convite sao obrigatorios" });
       }
 
-      if (password.length < 4) {
-        return res.status(400).json({ error: "Senha deve ter pelo menos 4 caracteres" });
+      if (password.length < 6) {
+        return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres" });
       }
 
       const inviteRow = stmts.getInvite.get(invite);

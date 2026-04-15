@@ -104,7 +104,7 @@ function normalizeStructuredPayload(parsed, meta) {
     throw new ClaudeResponseParseError("INVALID_SCHEMA", meta);
   }
 
-  if (typeof parsed.reply !== "string") {
+  if (typeof parsed.reply !== "string" || !parsed.reply.trim()) {
     throw new ClaudeResponseParseError("INVALID_SCHEMA", meta);
   }
 

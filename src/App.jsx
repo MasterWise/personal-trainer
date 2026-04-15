@@ -22,6 +22,8 @@ import CadernoView from "./views/CadernoView.jsx";
 import LogsView from "./views/LogsView.jsx";
 import PerfilTab from "./components/perfil/PerfilTab.jsx";
 import { deriveHealthViewModel } from "./utils/healthModel.js";
+import { diffPerfil, buildMedidaFromDiff, buildProgressoFromDiff } from "./utils/perfilDiff.js";
+import { PROGRESSO_EMOJIS } from "./data/constants.js";
 import "./styles/components/app-shell.css";
 import "./styles/components/header.css";
 import "./styles/components/bottom-nav.css";
@@ -744,7 +746,53 @@ export default function App() {
   }
 
   async function savePerfil(json) {
-    await mutateDocs((prevDocs) => ({ ...prevDocs, perfil: json }), {
+    await mutateDocs((prevDocs) => {
+      let prevPerfil = {};
+      let nextPerfil = {};
+      try { prevPerfil = JSON.parse(prevDocs.perfil || "{}"); } catch { /* ignore */ }
+      try { nextPerfil = JSON.parse(json || "{}"); } catch { /* ignore */ }
+
+      const diff = diffPerfil(prevPerfil, nextPerfil);
+      const nextDocs = { ...prevDocs, perfil: json };
+
+      // Auto-create medidas entry on body data change (dedup by date)
+      if (diff.bodyChanged) {
+        const medida = buildMedidaFromDiff(nextPerfil, diff.bodyDelta);
+        let medidasArr = [];
+        try { medidasArr = JSON.parse(prevDocs.medidas || "[]"); } catch { /* ignore */ }
+        const today = new Date().toLocaleDateString("pt-BR");
+        const existingIdx = medidasArr.findIndex(m => m.data === today && m.metodo === "perfil");
+        if (existingIdx >= 0) {
+          medidasArr[existingIdx] = { ...medidasArr[existingIdx], ...medida };
+        } else {
+          medidasArr.push(medida);
+        }
+        nextDocs.medidas = JSON.stringify(medidasArr);
+      }
+
+      // Auto-create progresso entries on meta/limitation changes
+      const progressoEntries = buildProgressoFromDiff(diff);
+      if (progressoEntries.length > 0) {
+        let progressoArr = [];
+        try { progressoArr = JSON.parse(prevDocs.progresso || "[]"); } catch { /* ignore */ }
+        const todayLabel = new Date().toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+        for (const entry of progressoEntries) {
+          // Dedup: don't create if same type + title exists for today
+          const exists = progressoArr.some(p => p.date === todayLabel && p.type === entry.type && p.title === entry.title);
+          if (!exists) {
+            progressoArr.push({
+              id: Date.now() + Math.random(),
+              date: todayLabel,
+              emoji: PROGRESSO_EMOJIS[entry.type] || "🔄",
+              ...entry,
+            });
+          }
+        }
+        nextDocs.progresso = JSON.stringify(progressoArr);
+      }
+
+      return nextDocs;
+    }, {
       rebuildHealthCache: true,
     });
   }
@@ -753,6 +801,35 @@ export default function App() {
   }
   async function saveMicro(text) {
     await mutateDocs((prevDocs) => ({ ...prevDocs, micro: text }));
+  }
+
+  async function addMedida(medidaObj) {
+    await mutateDocs((prevDocs) => {
+      let medidasArr = [];
+      try { medidasArr = JSON.parse(prevDocs.medidas || "[]"); } catch { /* ignore */ }
+      const today = new Date().toLocaleDateString("pt-BR");
+      const newEntry = { data: today, ...medidaObj };
+      // Dedup: update existing entry for today from same source
+      const existingIdx = medidasArr.findIndex(m => m.data === today && m.metodo === (medidaObj.metodo || "manual"));
+      if (existingIdx >= 0) {
+        medidasArr[existingIdx] = { ...medidasArr[existingIdx], ...newEntry };
+      } else {
+        medidasArr.push(newEntry);
+      }
+
+      // Also sync perfil with latest body values
+      let perfil = {};
+      try { perfil = JSON.parse(prevDocs.perfil || "{}"); } catch { /* ignore */ }
+      if (medidaObj.peso_kg) perfil.peso_kg = medidaObj.peso_kg;
+      if (medidaObj.gordura_pct) perfil.gordura_pct = medidaObj.gordura_pct;
+      if (medidaObj.tmb_kcal) perfil.tmb_kcal = medidaObj.tmb_kcal;
+
+      return {
+        ...prevDocs,
+        medidas: JSON.stringify(medidasArr),
+        perfil: JSON.stringify(perfil, null, 2),
+      };
+    }, { rebuildHealthCache: true });
   }
 
   if (isLoading) return <LoadingScreen />;
@@ -817,6 +894,9 @@ export default function App() {
             selectedDate={planoDate}
             setSelectedDate={setPlanoDate}
             viewModel={healthViewModel}
+            medidas={docs.medidas}
+            perfil={docs.perfil}
+            onAddMedida={addMedida}
           />
         )}
         {activeTab === "progresso" && <ProgressoView progresso={docs.progresso} />}

@@ -32,6 +32,7 @@ describe("Documents routes", () => {
       "cal",
       "hist",
       "macro",
+      "medidas",
       "mem",
       "micro",
       "perfil",

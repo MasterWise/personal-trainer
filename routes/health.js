@@ -5,11 +5,11 @@ const AI_GATEWAY_URL = process.env.AI_GATEWAY_URL || "http://localhost:3500";
 const HEALTH_TIMEOUT_MS = Number.parseInt(process.env.HEALTH_TIMEOUT_MS || "3000", 10);
 
 async function checkGateway() {
-  const response = await fetch(AI_GATEWAY_URL, {
+  const response = await fetch(`${AI_GATEWAY_URL}/api/health`, {
     method: "GET",
     signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
   });
-  return response.status < 600;
+  return response.ok;
 }
 
 export default function healthRoutes() {

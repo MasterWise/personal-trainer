@@ -55,6 +55,16 @@ export function authMiddleware(req, res, next) {
     return res.status(401).json({ error: "Usuario nao encontrado" });
   }
 
+  // Sliding window: extend session when past halfway through TTL
+  const SESSION_TTL_DAYS = Number.parseInt(process.env.SESSION_TTL_DAYS || "7", 10) || 7;
+  const halfwayMs = (SESSION_TTL_DAYS * 24 * 60 * 60 * 1000) / 2;
+  const expiresAtTs = Date.parse(session.expires_at);
+  const sessionAge = Date.now() - (expiresAtTs - SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
+  if (Number.isFinite(sessionAge) && sessionAge > halfwayMs) {
+    const newExpiry = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    try { stmts.updateSessionExpiry.run(newExpiry, token); } catch { /* ignore */ }
+  }
+
   req.user = user;
   req.sessionId = token;
   next();

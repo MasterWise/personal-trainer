@@ -139,6 +139,7 @@ const stmts = {
   `),
   deleteSession: db.prepare("DELETE FROM sessions WHERE id = ?"),
   deleteExpiredSessions: db.prepare("DELETE FROM sessions WHERE expires_at < ?"),
+  updateSessionExpiry: db.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?"),
 
   // User Documents
   getDoc: db.prepare("SELECT * FROM user_documents WHERE user_id = ? AND doc_key = ?"),

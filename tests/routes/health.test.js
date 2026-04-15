@@ -6,7 +6,7 @@ const originalFetch = globalThis.fetch;
 
 beforeAll(async () => {
   setupTestEnv();
-  globalThis.fetch = async () => ({ status: 200 });
+  globalThis.fetch = async () => ({ status: 200, ok: true });
   const { createApp } = await import("../../app.js");
   app = await createApp({ enableSpa: false });
 });

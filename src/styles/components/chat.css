@@ -100,9 +100,9 @@
   color: var(--pt-color-text);
   resize: none;
   outline: none;
-  max-height: 120px;
   line-height: 1.45;
-  transition: border-color var(--pt-transition-fast);
+  overflow-y: auto;
+  transition: border-color var(--pt-transition-fast), height var(--pt-transition-fast);
 }
 
 .pt-chat__textarea::placeholder {

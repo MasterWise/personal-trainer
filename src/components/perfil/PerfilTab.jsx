@@ -5,6 +5,7 @@ import { useDocs } from "../../contexts/DocsContext.jsx";
 import { get, post, del } from "../../services/api.js";
 import { DIAS } from "../../data/constants.js";
 import Field from "../ui/Field.jsx";
+import TagEditor from "../ui/TagEditor.jsx";
 
 function InviteSection({ theme, sectionStyle, secTitle }) {
   const c = theme.colors;
@@ -243,6 +244,21 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
           </div>
         </div>
 
+        {/* Metas nutricionais diárias */}
+        <div style={sectionStyle}>
+          {secTitle("🍎", "Metas nutricionais diárias")}
+          <p style={{ fontFamily: theme.font, fontSize: "11px", color: c.textMuted, margin: "0 0 12px", lineHeight: "1.5" }}>
+            Alvos diários que o coach usa para montar seu plano alimentar.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+            <Field label="Calorias (kcal)" value={p.macros_alvo?.kcal ?? ""} type="number" onChange={v => set("macros_alvo", { ...(p.macros_alvo || {}), kcal: v ? Number(v) : "" })} />
+            <Field label="Proteína (g)" value={p.macros_alvo?.proteina_g ?? ""} onChange={v => set("macros_alvo", { ...(p.macros_alvo || {}), proteina_g: v })} />
+            <Field label="Carboidrato (g)" value={p.macros_alvo?.carbo_g ?? ""} onChange={v => set("macros_alvo", { ...(p.macros_alvo || {}), carbo_g: v })} />
+            <Field label="Gordura (g)" value={p.macros_alvo?.gordura_g ?? ""} onChange={v => set("macros_alvo", { ...(p.macros_alvo || {}), gordura_g: v })} />
+            <Field label="Fibras (g)" value={p.macros_alvo?.fibras_g ?? ""} type="number" onChange={v => set("macros_alvo", { ...(p.macros_alvo || {}), fibras_g: v ? Number(v) : "" })} />
+          </div>
+        </div>
+
         {/* Objetivo */}
         <div style={sectionStyle}>
           {secTitle("🎯", "Objetivo e contexto")}
@@ -301,6 +317,54 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
           {btnAdd(() => set("habitos", [...(p.habitos || []), ""]), "Adicionar hábito ou restrição")}
           <div style={{ marginTop: "14px", paddingTop: "14px", borderTop: `1px solid ${c.border}` }}>
             <Field label="Notas livres para o coach" value={p.notas_livres || ""} onChange={v => set("notas_livres", v)} multiline hint="Contexto extra, situações pontuais, recados diretos ao coach." />
+          </div>
+        </div>
+
+        {/* Preferências alimentares */}
+        <div style={sectionStyle}>
+          {secTitle("🍽️", "Preferências alimentares")}
+          <p style={{ fontFamily: theme.font, fontSize: "11px", color: c.textMuted, margin: "0 0 12px", lineHeight: "1.5" }}>
+            O coach usa para personalizar receitas e sugestões de refeições.
+          </p>
+
+          <label style={{ display: "block", fontFamily: theme.font, color: c.textMuted, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>
+            Texturas favoritas
+          </label>
+          <div style={{ marginBottom: "12px" }}>
+            <TagEditor
+              values={p.preferencias_alimentares?.texturas_favoritas || []}
+              onChange={(vals) => set("preferencias_alimentares", { ...(p.preferencias_alimentares || {}), texturas_favoritas: vals })}
+            />
+          </div>
+
+          <label style={{ display: "block", fontFamily: theme.font, color: c.textMuted, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>
+            Pratos favoritos
+          </label>
+          <div style={{ marginBottom: "12px" }}>
+            <TagEditor
+              values={p.preferencias_alimentares?.pratos_favoritos || []}
+              onChange={(vals) => set("preferencias_alimentares", { ...(p.preferencias_alimentares || {}), pratos_favoritos: vals })}
+            />
+          </div>
+
+          <label style={{ display: "block", fontFamily: theme.font, color: c.textMuted, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>
+            Doces gatilho (TPM)
+          </label>
+          <div style={{ marginBottom: "12px" }}>
+            <TagEditor
+              values={p.preferencias_alimentares?.doces_gatilho || []}
+              onChange={(vals) => set("preferencias_alimentares", { ...(p.preferencias_alimentares || {}), doces_gatilho: vals })}
+            />
+          </div>
+
+          <label style={{ display: "block", fontFamily: theme.font, color: c.textMuted, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>
+            Escapes aprovados
+          </label>
+          <div style={{ marginBottom: "12px" }}>
+            <TagEditor
+              values={p.preferencias_alimentares?.escapes_aprovados || []}
+              onChange={(vals) => set("preferencias_alimentares", { ...(p.preferencias_alimentares || {}), escapes_aprovados: vals })}
+            />
           </div>
         </div>
 

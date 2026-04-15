@@ -2,9 +2,13 @@ const PLAN_DATE_PATTERN = "^\\d{2}/\\d{2}/\\d{4}$";
 
 function resolvePlanScopeDate(interactionMeta = {}) {
   if (interactionMeta?.conversationType !== "plan") return null;
-  if (typeof interactionMeta?.planDate !== "string") return null;
-  const trimmed = interactionMeta.planDate.trim();
-  return /^\d{2}\/\d{2}\/\d{4}$/.test(trimmed) ? trimmed : null;
+  const raw = interactionMeta?.planDate;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) return trimmed;
+  }
+  // Fallback to today for plan conversations without explicit date
+  return new Date().toLocaleDateString("pt-BR");
 }
 
 export function buildResponseSchemaForInteraction(interactionMeta = {}) {
@@ -14,7 +18,7 @@ export function buildResponseSchemaForInteraction(interactionMeta = {}) {
   const updateProperties = {
     file: {
       type: "string",
-      enum: ["micro", "memoria", "historico", "plano", "progresso", "calorias", "treinos"],
+      enum: ["micro", "memoria", "historico", "plano", "progresso", "medidas"],
     },
     action: {
       type: "string",
@@ -22,6 +26,7 @@ export function buildResponseSchemaForInteraction(interactionMeta = {}) {
         "append",
         "replace_all",
         "add_progresso",
+        "add_medida",
         "append_item",
         "patch_item",
         "delete_item",
@@ -60,6 +65,7 @@ export function buildResponseSchemaForInteraction(interactionMeta = {}) {
     reply: { type: "string" },
     updates: {
       type: "array",
+      maxItems: 30,
       items: {
         type: "object",
         properties: updateProperties,

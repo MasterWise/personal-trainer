@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "../../contexts/ThemeContext.jsx";
 import { buildRelevantPlanContext, buildSystemInstructions, buildSystemContext } from "../../data/prompts.js";
 import { sendMessage } from "../../services/claudeService.js";
@@ -133,6 +133,7 @@ export default function ChatTab({
     const userMsg = { role: "user", content: text };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
+    if (taRef.current) taRef.current.style.height = "auto";
     setLoading(true);
 
     try {
@@ -161,7 +162,11 @@ export default function ChatTab({
       const parsed = parseClaudeStructuredResponse(data);
       const updates = parsed.updates || [];
       const preparedEntries = updates
-        .map((u) => lockPlanUpdateToDate(u, planDateLock, docs.plano, { allowPlanReplaceAll: false }))
+        .map((u, idx) => {
+          const locked = lockPlanUpdateToDate(u, planDateLock, docs.plano, { allowPlanReplaceAll: false });
+          if (!locked) console.warn(`[ChatTab] Update #${idx} dropped by planUpdateGuard:`, { file: u.file, action: u.action, targetDate: u.targetDate });
+          return locked;
+        })
         .filter(Boolean)
         .map((u) => enforcePlanUserCheckedPermission(u, docs.plano));
 
@@ -235,6 +240,15 @@ export default function ChatTab({
 
   const quickActions = ["Como foi minha semana?", "Lanche da tarde ideal 🍎", "Estou na TPM 😩", "O que jantar hoje?"];
   const showWelcome = docsReady && messages.length === 0 && !generating && !isPlanConversation;
+
+  // Auto-resize textarea up to 3 visible lines, then scroll
+  const autoResizeTextarea = useCallback((el) => {
+    if (!el) return;
+    el.style.height = "auto";
+    const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 22;
+    const maxHeight = lineHeight * 3 + 22; // 3 lines + vertical padding
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  }, []);
 
   return (
     <div className="pt-chat">
@@ -313,9 +327,9 @@ export default function ChatTab({
       </div>
 
       <div className="pt-chat__input-area">
-        <textarea ref={taRef} value={input} onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder={docsReady ? (inputPlaceholder || "Escreva aqui... (Enter envia)") : "Carregando..."}
+        <textarea ref={taRef} value={input}
+          onChange={e => { setInput(e.target.value); autoResizeTextarea(e.target); }}
+          placeholder={docsReady ? (inputPlaceholder || "Escreva aqui...") : "Carregando..."}
           disabled={!docsReady || readOnly || generating} rows={1}
           className="pt-chat__textarea" />
         <button onClick={send} disabled={!input.trim() || (loading || generating) || !docsReady || readOnly}

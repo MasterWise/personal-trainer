@@ -3,6 +3,8 @@ import { stmts, withTransaction } from "../db/index.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { clearUserDocuments, seedUserDefaults } from "../db/seedDefaults.js";
 
+const VALID_DOC_KEY = /^[a-z0-9_-]{1,50}$/;
+
 export default function documentRoutes() {
   const router = Router();
 
@@ -51,6 +53,7 @@ export default function documentRoutes() {
 
   // Busca um documento por chave
   router.get("/api/documents/:key", authMiddleware, (req, res) => {
+    if (!VALID_DOC_KEY.test(req.params.key)) return res.status(400).json({ error: "doc_key invalido" });
     try {
       const doc = stmts.getDoc.get(req.user.id, req.params.key);
       if (!doc) {
@@ -69,6 +72,7 @@ export default function documentRoutes() {
 
   // Atualiza/cria um documento
   router.put("/api/documents/:key", authMiddleware, (req, res) => {
+    if (!VALID_DOC_KEY.test(req.params.key)) return res.status(400).json({ error: "doc_key invalido" });
     try {
       const { content } = req.body;
       if (content === undefined || content === null) {

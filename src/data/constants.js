@@ -340,32 +340,49 @@ export const INIT_PERFIL = JSON.stringify({
   notas_livres: "",
 });
 
+export const INIT_MEDIDAS = JSON.stringify([
+  {
+    data: "01/02/2026",
+    peso_kg: 60.5,
+    gordura_pct: 21.4,
+    tmb_kcal: 1397,
+    circunferencias: {},
+    metodo: "balanca",
+    notas: "Linha de base — inicio do acompanhamento",
+  },
+]);
+
 export const DEFAULTS = {
   micro: INIT_MICRO,
   mem: INIT_MEM,
   hist: INIT_HIST,
   plano: INIT_PLANO,
   progresso: INIT_PROGRESSO,
+  medidas: INIT_MEDIDAS,
 };
 
 export const TAB_LABELS = {
   plano: "Plano", progresso: "Progresso", historico: "Histórico",
   micro: "Perfil", memoria: "Anotações", calorias: "Saúde", treinos: "Saúde",
+  medidas: "Saúde",
 };
 
 export const TAB_ICONS = {
   plano: "📋", progresso: "🏆", historico: "📊",
   micro: "👤", memoria: "📝", calorias: "🍎", treinos: "🏋️",
+  medidas: "📏",
 };
 
 export const FILE_TO_TAB = {
   plano: "plano", progresso: "progresso", historico: "caderno",
   micro: "caderno", memoria: "caderno", calorias: "saude", treinos: "saude",
+  medidas: "saude",
 };
 
 export const FILE_TO_STATE = {
   micro: "micro", memoria: "mem", historico: "hist",
   plano: "plano", progresso: "progresso", calorias: "cal", treinos: "treinos",
+  medidas: "medidas",
 };
 
 export const PROGRESSO_EMOJIS = {
