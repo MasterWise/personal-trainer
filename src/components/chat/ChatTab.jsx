@@ -13,6 +13,7 @@ import { enforcePlanUserCheckedPermission } from "../../utils/planPermissionGuar
 import ChatMsg from "./ChatMsg.jsx";
 import PermCard from "./PermCard.jsx";
 
+import { post } from "../../services/api.js";
 import { useDocs } from "../../contexts/DocsContext.jsx";
 
 function normalizePromptCard(prompt, fallback = {}) {
@@ -101,6 +102,9 @@ export default function ChatTab({
   readOnly = false,
   inputPlaceholder,
   contextBadge,
+  conversationId = null,
+  cliSessionId: cliSessionIdProp = null,
+  hasInFlight = false,
 }) {
   const { applyUpdateBatch } = useDocs();
   const { theme } = useTheme();
@@ -108,7 +112,9 @@ export default function ChatTab({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [pendingPerms, setPPerms] = useState([]);
-  const [sessionId] = useState(() => crypto.randomUUID());
+  // Use the CLI session ID from App.jsx (unified namespace); fall back to local UUID
+  const [localSessionId] = useState(() => crypto.randomUUID());
+  const sessionId = cliSessionIdProp || localSessionId;
   const bottomRef = useRef(null);
   const taRef = useRef(null);
   const isPlanConversation = conversationMeta?.type === "plan";
@@ -129,7 +135,7 @@ export default function ChatTab({
 
   async function send() {
     const text = input.trim();
-    if (!text || loading || !docsReady || readOnly) return;
+    if (!text || loading || hasInFlight || !docsReady || readOnly) return;
     const userMsg = { role: "user", content: text };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
@@ -157,8 +163,10 @@ export default function ChatTab({
           ...normalizedMeta,
           planContext,
           _sessionId: sessionId,
+          conversationId,
         }
       );
+      const responseId = data?._responseId || null;
       const parsed = parseClaudeStructuredResponse(data);
       const updates = parsed.updates || [];
       const preparedEntries = updates
@@ -182,8 +190,13 @@ export default function ChatTab({
         setPPerms((prev) => [...prev, ...buildPermissionGroups(perms)]);
       }
 
-      const aiMsg = { role: "assistant", content: parsed.reply || "...", appliedUpdates };
+      const aiMsg = { role: "assistant", content: parsed.reply || "...", appliedUpdates, _responseId: responseId };
       setMessages(prev => [...prev, aiMsg]);
+
+      // Acknowledge the pending response so it's not replayed on reconnect
+      if (responseId) {
+        post("/claude/pending/" + responseId + "/ack", {}).catch(() => {});
+      }
     } catch (e) {
       if (isClaudeResponseParseError(e)) {
         console.error("send() parse error:", e.code, e.meta, e);
@@ -303,7 +316,7 @@ export default function ChatTab({
           <ChatMsg key={i} msg={m} msgIndex={i} setTab={setTab} onRevert={handleRevert} />
         ))}
 
-        {(loading || generating) && (
+        {(loading || generating || hasInFlight) && (
           <div className="pt-chat__row pt-chat__row--assistant">
             <div className="pt-chat__avatar">🌿</div>
             <div className="pt-chat__bubble pt-chat__bubble--assistant" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -330,10 +343,10 @@ export default function ChatTab({
         <textarea ref={taRef} value={input}
           onChange={e => { setInput(e.target.value); autoResizeTextarea(e.target); }}
           placeholder={docsReady ? (inputPlaceholder || "Escreva aqui...") : "Carregando..."}
-          disabled={!docsReady || readOnly || generating} rows={1}
+          disabled={!docsReady || readOnly || generating || hasInFlight} rows={1}
           className="pt-chat__textarea" />
-        <button onClick={send} disabled={!input.trim() || (loading || generating) || !docsReady || readOnly}
-          className={`pt-chat__send ${input.trim() && !(loading || generating) && docsReady ? "pt-chat__send--active" : ""}`}>
+        <button onClick={send} disabled={!input.trim() || (loading || generating || hasInFlight) || !docsReady || readOnly}
+          className={`pt-chat__send ${input.trim() && !(loading || generating || hasInFlight) && docsReady ? "pt-chat__send--active" : ""}`}>
           ➤
         </button>
       </div>

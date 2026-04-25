@@ -105,7 +105,10 @@ describe("POST /api/claude", () => {
       });
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual(gatewayResponse);
+    // Response includes _responseId from the Response Inbox feature
+    const { _responseId, ...responseBody } = res.body;
+    expect(responseBody).toEqual(gatewayResponse);
+    expect(typeof _responseId === "string" || _responseId === null).toBe(true);
 
     // Verify fetch was called with correct gateway URL and payload
     expect(mockFetch).toHaveBeenCalledOnce();

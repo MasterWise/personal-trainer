@@ -32,7 +32,7 @@ export default function claudeRoutes() {
     const allowDetailedDebug = debugMode && (process.env.NODE_ENV !== "production" || ALLOW_DEBUG_AI_LOGS);
 
     try {
-      const { system, messages, output_config, _sessionId, interaction_context } = req.body;
+      const { system, messages, output_config, _sessionId, interaction_context, conversationId } = req.body;
 
       if (!messages || !Array.isArray(messages)) {
         return res.status(400).json({ error: 'Campo "messages" e obrigatorio e deve ser um array' });
@@ -62,6 +62,23 @@ export default function claudeRoutes() {
       if (MAX_OUTPUT_TOKENS) gatewayPayload.max_output_tokens = MAX_OUTPUT_TOKENS;
 
       const GATEWAY_TIMEOUT_MS = parseInt(process.env.GATEWAY_TIMEOUT_MS || "500000", 10);
+
+      // ── Response Inbox: register in-flight request BEFORE calling gateway ──
+      // This lets the frontend know a response is being generated (survives page refresh)
+      const inFlightId = crypto.randomUUID();
+      const inFlightNow = new Date();
+      const lastUserMsg = [...messages].reverse().find(m => m?.role === "user");
+      try {
+        stmts.insertPendingResponse.run(
+          inFlightId, req.user.id, conversationId || null, _sessionId || null,
+          lastUserMsg ? JSON.stringify(lastUserMsg) : null,
+          '{}', null, null, 'in_flight',
+          inFlightNow.toISOString(),
+          new Date(inFlightNow.getTime() + 86400000).toISOString()
+        );
+      } catch (e) {
+        console.error("[InFlight Save Error]", e);
+      }
 
       let response = await fetch(`${AI_GATEWAY_URL}/api/chat`, {
         method: "POST",
@@ -109,6 +126,14 @@ export default function claudeRoutes() {
             );
           } catch (e) { console.error("[Debug Log Error]", e); }
         }
+
+        // Mark in-flight as failed for gateway errors
+        try {
+          stmts.failPendingResponse.run(
+            JSON.stringify(data), new Date().toISOString(),
+            inFlightId, req.user.id
+          );
+        } catch { /* ignore */ }
 
         return res.status(response.status).json(data);
       }
@@ -160,7 +185,33 @@ export default function claudeRoutes() {
         } catch (e) { console.error("[Debug Log Error]", e); }
       }
 
-      res.json(data);
+      // ── Response Inbox: complete in_flight → pending with actual response ──
+      try {
+        let pendingReplyText = null;
+        let pendingUpdatesJson = null;
+        const pendingContent = Array.isArray(data?.content) ? data.content : [];
+        const pendingOutputJson = pendingContent.find(b => b?.type === "output_json");
+        const pendingTextBlock = pendingContent.find(b => b?.type === "text")?.text;
+        if (pendingOutputJson?.json) {
+          pendingReplyText = pendingOutputJson.json.reply || null;
+          pendingUpdatesJson = JSON.stringify(pendingOutputJson.json.updates || []);
+        } else if (pendingTextBlock) {
+          try {
+            const parsedText = JSON.parse(pendingTextBlock);
+            pendingReplyText = parsedText.reply || null;
+            pendingUpdatesJson = JSON.stringify(parsedText.updates || []);
+          } catch { /* not structured JSON */ }
+        }
+
+        stmts.completePendingResponse.run(
+          JSON.stringify(data), pendingReplyText, pendingUpdatesJson,
+          inFlightId, req.user.id
+        );
+      } catch (e) {
+        console.error("[Pending Complete Error]", e);
+      }
+
+      res.json({ ...data, _responseId: inFlightId });
     } catch (error) {
       console.error("[Server Error]", error);
 
@@ -177,6 +228,15 @@ export default function claudeRoutes() {
           );
         } catch (e) { console.error("[Debug Log Error]", e); }
       }
+
+      // Mark in-flight request as failed so frontend stops showing loading
+      try {
+        stmts.failPendingResponse.run(
+          JSON.stringify({ error: error.message }),
+          new Date().toISOString(),
+          inFlightId, req.user.id
+        );
+      } catch { /* ignore cleanup error */ }
 
       // Timeout from AbortSignal.timeout()
       if (error?.name === "TimeoutError" || error?.name === "AbortError") {
@@ -229,6 +289,52 @@ export default function claudeRoutes() {
       stmts.deleteAiLogs.run(req.user.id);
       res.json({ ok: true });
     } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Response Inbox routes ---
+
+  router.get("/api/claude/pending", authMiddleware, (req, res) => {
+    try {
+      // Piggyback cleanup of expired processed entries
+      try { stmts.cleanupExpiredPending.run(new Date().toISOString()); } catch { /* ignore */ }
+
+      const rows = stmts.listPendingByUser.all(req.user.id);
+      res.json({ items: rows });
+    } catch (e) {
+      console.error("[Pending Error][GET]", e);
+      res.status(500).json({ error: "Erro ao buscar respostas pendentes" });
+    }
+  });
+
+  router.get("/api/claude/pending/:id", authMiddleware, (req, res) => {
+    try {
+      const row = stmts.getPendingById.get(req.params.id, req.user.id);
+      if (!row) return res.status(404).json({ error: "Resposta pendente nao encontrada" });
+      res.json(row);
+    } catch (e) {
+      console.error("[Pending Error][GET :id]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  router.post("/api/claude/pending/:id/ack", authMiddleware, (req, res) => {
+    try {
+      const result = stmts.ackPendingResponse.run(
+        new Date().toISOString(),
+        req.params.id,
+        req.user.id
+      );
+      if (result.changes === 0) {
+        // Already processed or not found — idempotent
+        const existing = stmts.getPendingById.get(req.params.id, req.user.id);
+        if (!existing) return res.status(404).json({ error: "Nao encontrado" });
+        return res.json({ ok: true, status: existing.status });
+      }
+      res.json({ ok: true, status: "processed" });
+    } catch (e) {
+      console.error("[Pending Error][POST ack]", e);
       res.status(500).json({ error: e.message });
     }
   });

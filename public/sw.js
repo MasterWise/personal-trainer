@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "pt-coach-";
-const CACHE_NAME = `${CACHE_PREFIX}v3`;
+const CACHE_NAME = `${CACHE_PREFIX}v4`;
 const APP_SHELL = ["/pt/", "/pt/index.html", "/pt/manifest.json", "/pt/icons/icon.svg"];
 
 async function getBuildAssets() {

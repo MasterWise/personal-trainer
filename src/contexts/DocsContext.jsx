@@ -396,6 +396,9 @@ export function DocsProvider({ children }) {
   const [docsGeneration, setDocsGeneration] = useState(0);
   const docsRef = useRef(emptyDocs());
   const mutationQueueRef = useRef(Promise.resolve());
+  // Circuit breaker: stop retrying persistence after consecutive failures
+  const persistFailCountRef = useRef(0);
+  const PERSIST_FAIL_LIMIT = 5;
 
   useEffect(() => {
     docsRef.current = docs;
@@ -409,6 +412,11 @@ export function DocsProvider({ children }) {
   }, []);
 
   const reloadDocs = useCallback(async ({ markReady = true } = {}) => {
+    // Don't reload if circuit breaker is open (prevents infinite persist → reload → persist loops)
+    if (persistFailCountRef.current >= PERSIST_FAIL_LIMIT) {
+      console.warn("[DocsContext] Circuit breaker open — skipping reloadDocs");
+      return docsRef.current;
+    }
     const loaded = await loadAll();
     docsRef.current = loaded;
     setDocs(loaded);
@@ -430,6 +438,7 @@ export function DocsProvider({ children }) {
     let cancelled = false;
     setDocsStatus("loading");
     setDocsError(null);
+    persistFailCountRef.current = 0; // Reset circuit breaker on fresh auth
 
     async function hydrate() {
       try {
@@ -455,12 +464,24 @@ export function DocsProvider({ children }) {
   const persistDocs = useCallback(async (nextDocs, keys) => {
     if (!Array.isArray(keys) || keys.length === 0) return;
 
-    if (keys.length === 1) {
-      await put(`/documents/${keys[0]}`, { content: nextDocs[keys[0]] });
+    // Circuit breaker: skip persistence after too many consecutive failures
+    if (persistFailCountRef.current >= PERSIST_FAIL_LIMIT) {
+      console.warn("[DocsContext] Circuit breaker open — skipping persistDocs after", PERSIST_FAIL_LIMIT, "consecutive failures");
       return;
     }
 
-    await put("/documents", keys.map((key) => ({ key, content: nextDocs[key] })));
+    try {
+      if (keys.length === 1) {
+        await put(`/documents/${keys[0]}`, { content: nextDocs[keys[0]] });
+      } else {
+        await put("/documents", keys.map((key) => ({ key, content: nextDocs[key] })));
+      }
+      // Reset circuit breaker on success
+      persistFailCountRef.current = 0;
+    } catch (error) {
+      persistFailCountRef.current++;
+      throw error;
+    }
   }, []);
 
   const enqueueMutation = useCallback((runner) => {

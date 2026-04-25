@@ -36,27 +36,32 @@ export function buildResponseSchemaForInteraction(interactionMeta = {}) {
         "append_coach_note",
       ],
     },
-    content: { type: ["string", "object"] },
+    content: { anyOf: [{ type: "string" }, { type: "object" }] },
     requiresPermission: { type: "boolean" },
     permissionMessage: { type: "string" },
-    permissionType: { type: ["string", "null"] },
-    permissionGroupId: { type: ["string", "null"] },
+    permissionType: { anyOf: [{ type: "string" }, { type: "null" }] },
+    permissionGroupId: { anyOf: [{ type: "string" }, { type: "null" }] },
     permissionPrompt: {
-      type: ["object", "null"],
-      properties: {
-        title: { type: "string" },
-        message: { type: "string" },
-        approveLabel: { type: "string" },
-        rejectLabel: { type: "string" },
-        details: {
-          type: "array",
-          items: { type: "string" },
+      anyOf: [
+        { type: "null" },
+        {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            message: { type: "string" },
+            approveLabel: { type: "string" },
+            rejectLabel: { type: "string" },
+            details: {
+              type: "array",
+              items: { type: "string" },
+            },
+            approvedFeedback: { type: "string" },
+            rejectedFeedback: { type: "string" },
+          },
+          required: ["title", "message", "approveLabel", "rejectLabel", "details"],
+          additionalProperties: false,
         },
-        approvedFeedback: { type: "string" },
-        rejectedFeedback: { type: "string" },
-      },
-      required: ["title", "message", "approveLabel", "rejectLabel", "details"],
-      additionalProperties: false,
+      ],
     },
   };
   const updateRequired = ["file", "action", "content", "requiresPermission", "permissionMessage"];
@@ -84,8 +89,8 @@ export function buildResponseSchemaForInteraction(interactionMeta = {}) {
     rootProperties.planScopeDate = { type: "string", enum: [planScopeDate] };
     rootRequired.push("planScopeDate");
   } else {
-    updateProperties.targetDate = { type: ["string", "null"], pattern: PLAN_DATE_PATTERN };
-    rootProperties.planScopeDate = { type: ["string", "null"], pattern: PLAN_DATE_PATTERN };
+    updateProperties.targetDate = { anyOf: [{ type: "string", pattern: PLAN_DATE_PATTERN }, { type: "null" }] };
+    rootProperties.planScopeDate = { anyOf: [{ type: "string", pattern: PLAN_DATE_PATTERN }, { type: "null" }] };
   }
 
   if (planScopeDate && !allowPlanReplaceAll) {

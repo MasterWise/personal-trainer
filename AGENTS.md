@@ -18,6 +18,19 @@
 - Integrado em `App.jsx` via useEffect com debounce de 3s, dispara apos calculo do healthViewModel.
 - Testes em `tests/utils/adherence-triggers.test.js`.
 
+## Response Inbox (persistencia server-side de respostas da IA)
+- **Problema resolvido**: Se o usuario saisse da tela enquanto a IA estava gerando resposta (1-5 min), a resposta era perdida e a CLI session ficava dessincronizada.
+- **Solucao**: O backend (`routes/claude.js`) salva a resposta na tabela `pending_ai_responses` ANTES de devolver ao frontend. Se o frontend perder a resposta, recupera no proximo load.
+- **Tabela**: `pending_ai_responses` (migration 007) — id, user_id, conversation_id, cli_session_id, response_raw, status, expires_at (24h TTL).
+- **Endpoints novos**: `GET /api/claude/pending`, `GET /api/claude/pending/:id`, `POST /api/claude/pending/:id/ack`.
+- **Frontend**: `src/hooks/usePendingRecovery.js` verifica pendentes no load, aplica mutations via `replayGuard.js` (pre-screening de idempotencia), e envia ack.
+- **Session persist**: `conversations.cli_session_id` armazena o _sessionId do CLI bridge. Restaurado no load para manter --resume funcional apos page reloads.
+- **Unificacao de sessao**: ChatTab agora recebe `cliSessionId` como prop de App.jsx ao inves de gerar UUID proprio.
+- **In-flight state**: Lifecycle de 2 fases — `in_flight` (antes do gateway) → `pending` (apos resposta) → `processed` (apos ack) / `failed` (em caso de erro).
+- **Polling**: `usePendingRecovery` faz polling a cada 5s enquanto houver itens `in_flight`. Frontend mostra loading dots e bloqueia input via prop `hasInFlight`.
+- **conversationReady gate**: O hook espera `conversationReady` (alem de `docsReady` e `isAuthenticated`) para evitar race condition onde `currentConvoId` ainda e null.
+- **Testes**: `tests/routes/claude-pending.test.js`, `tests/utils/replay-guard.test.js`.
+
 ## Excecoes locais
 - Preserve o acoplamento via ai-gateway para chamadas Claude; nao reintroduza chamadas diretas ao provider sem necessidade validada.
 - Mudancas no protocolo de `plano`, docs ou updates da IA devem continuar compativeis com structured outputs e com os guards de permissao/escopo ja adotados.

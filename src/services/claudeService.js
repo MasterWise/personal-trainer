@@ -202,7 +202,8 @@ function normalizeMessages(messages) {
  */
 export async function sendMessage(messages, systemInstructions, systemContext, interactionMeta = {}) {
   // _sessionId enables CLI provider session resume (avoids re-sending full history each turn).
-  const { _sessionId, ...restMeta } = interactionMeta;
+  // conversationId enables server-side response persistence (Response Inbox).
+  const { _sessionId, conversationId, ...restMeta } = interactionMeta;
   const normalizedMessages = normalizeMessages(messages);
   const responseSchema = buildResponseSchemaForInteraction(restMeta);
 
@@ -235,6 +236,7 @@ export async function sendMessage(messages, systemInstructions, systemContext, i
   };
 
   if (_sessionId) payload._sessionId = _sessionId;
+  if (conversationId) payload.conversationId = conversationId;
   if (systemInstructions) payload.system = systemInstructions;
 
   return post("/claude", payload);

@@ -115,7 +115,8 @@ runMigrations();
 
 const CONVERSATION_SELECT_COLUMNS = `
   id, user_id, messages, preview, message_count, is_current, created_at,
-  conversation_type, plan_date, plan_version, plan_thread_key, origin_action, updated_at
+  conversation_type, plan_date, plan_version, plan_thread_key, origin_action, updated_at,
+  cli_session_id
 `;
 
 const stmts = {
@@ -163,9 +164,10 @@ const stmts = {
   saveCurrent: db.prepare(`
     INSERT INTO conversations (
       id, user_id, messages, preview, message_count, is_current, created_at,
-      conversation_type, plan_date, plan_version, plan_thread_key, origin_action, updated_at
+      conversation_type, plan_date, plan_version, plan_thread_key, origin_action, updated_at,
+      cli_session_id
     )
-    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       messages = excluded.messages,
       preview = excluded.preview,
@@ -176,7 +178,8 @@ const stmts = {
       plan_version = excluded.plan_version,
       plan_thread_key = excluded.plan_thread_key,
       origin_action = excluded.origin_action,
-      updated_at = excluded.updated_at
+      updated_at = excluded.updated_at,
+      cli_session_id = COALESCE(excluded.cli_session_id, conversations.cli_session_id)
   `),
   listArchived: db.prepare(
     `SELECT ${CONVERSATION_SELECT_COLUMNS} FROM conversations
@@ -239,6 +242,46 @@ const stmts = {
   ),
   deleteInvite: db.prepare("DELETE FROM invites WHERE code = ? AND created_by = ? AND used_by IS NULL"),
   listAllUsers: db.prepare("SELECT id, name, is_admin, created_at FROM users ORDER BY created_at ASC"),
+
+  // Pending AI Responses (Response Inbox)
+  insertPendingResponse: db.prepare(`
+    INSERT INTO pending_ai_responses
+      (id, user_id, conversation_id, cli_session_id, trigger_message,
+       response_raw, reply_text, updates_json, status, created_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `),
+  completePendingResponse: db.prepare(`
+    UPDATE pending_ai_responses
+    SET status = 'pending', response_raw = ?, reply_text = ?, updates_json = ?
+    WHERE id = ? AND user_id = ? AND status = 'in_flight'
+  `),
+  failPendingResponse: db.prepare(`
+    UPDATE pending_ai_responses
+    SET status = 'failed', response_raw = ?, processed_at = ?
+    WHERE id = ? AND user_id = ? AND status = 'in_flight'
+  `),
+  listPendingByUser: db.prepare(`
+    SELECT id, conversation_id, cli_session_id, trigger_message,
+           reply_text, updates_json, status, created_at
+    FROM pending_ai_responses
+    WHERE user_id = ? AND status IN ('pending', 'in_flight')
+    ORDER BY created_at ASC
+  `),
+  getPendingById: db.prepare(`
+    SELECT id, user_id, conversation_id, cli_session_id, trigger_message,
+           response_raw, reply_text, updates_json, status, created_at, processed_at
+    FROM pending_ai_responses
+    WHERE id = ? AND user_id = ?
+  `),
+  ackPendingResponse: db.prepare(`
+    UPDATE pending_ai_responses
+    SET status = 'processed', processed_at = ?
+    WHERE id = ? AND user_id = ? AND status = 'pending'
+  `),
+  cleanupExpiredPending: db.prepare(`
+    DELETE FROM pending_ai_responses
+    WHERE expires_at < ? AND status NOT IN ('pending', 'in_flight')
+  `),
 };
 
 export { db, stmts, withTransaction };

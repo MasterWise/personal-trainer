@@ -20,8 +20,8 @@ describe("claude schema reinforcement", () => {
       enum: ["27/02/2026"],
     });
     expect(schema.properties.updates.items.properties.action.enum).toContain("append_coach_note");
-    expect(schema.properties.updates.items.properties.permissionGroupId).toEqual({ type: ["string", "null"] });
-    expect(schema.properties.updates.items.properties.permissionPrompt.required).toEqual([
+    expect(schema.properties.updates.items.properties.permissionGroupId).toEqual({ anyOf: [{ type: "string" }, { type: "null" }] });
+    expect(schema.properties.updates.items.properties.permissionPrompt.anyOf[1].required).toEqual([
       "title",
       "message",
       "approveLabel",
@@ -37,8 +37,7 @@ describe("claude schema reinforcement", () => {
     expect(schema.required).not.toContain("planScopeDate");
     expect(schema.properties.updates.items.required).not.toContain("targetDate");
     expect(schema.properties.updates.items.properties.targetDate).toEqual({
-      type: ["string", "null"],
-      pattern: "^\\d{2}/\\d{2}/\\d{4}$",
+      anyOf: [{ type: "string", pattern: "^\\d{2}/\\d{2}/\\d{4}$" }, { type: "null" }],
     });
   });
 

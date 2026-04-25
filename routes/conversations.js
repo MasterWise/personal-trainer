@@ -67,6 +67,7 @@ function serializeConversation(row, { includeMessages = true } = {}) {
     planVersion: row.plan_version ?? null,
     planThreadKey: row.plan_thread_key || null,
     originAction: row.origin_action || null,
+    cliSessionId: row.cli_session_id || null,
   };
 
   if (includeMessages) {
@@ -87,6 +88,7 @@ function saveConversationCurrent({
   planThreadKey,
   originAction,
   now,
+  cliSessionId,
 }) {
   stmts.saveCurrent.run(
     convoId,
@@ -101,6 +103,7 @@ function saveConversationCurrent({
     planThreadKey,
     originAction,
     now,
+    cliSessionId || null,
   );
 }
 
@@ -179,7 +182,7 @@ export default function conversationRoutes() {
   // Salva conversa atual
   router.put("/api/conversations/current", authMiddleware, (req, res) => {
     try {
-      const { conversationId, messages, meta } = req.body || {};
+      const { conversationId, messages, meta, cliSessionId } = req.body || {};
       if (!Array.isArray(messages)) {
         return res.status(400).json({ error: "Campo 'messages' deve ser um array" });
       }
@@ -211,6 +214,7 @@ export default function conversationRoutes() {
           planThreadKey: resolvedMeta.planThreadKey,
           originAction: resolvedMeta.originAction,
           now,
+          cliSessionId: typeof cliSessionId === "string" ? cliSessionId : null,
         });
       });
 

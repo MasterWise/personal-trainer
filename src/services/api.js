@@ -3,7 +3,11 @@ import { getAuthToken } from "../main.jsx";
 export const API_BASE = "/api/pt";
 
 function buildHeaders() {
-  const headers = { "Content-Type": "application/json" };
+  const headers = {
+    "Content-Type": "application/json",
+    // Skip ngrok interstitial page that returns 403 on API calls
+    "ngrok-skip-browser-warning": "true",
+  };
   const token = getAuthToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (localStorage.getItem("debugAI") === "true") headers["x-debug-log"] = "true";

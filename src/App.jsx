@@ -26,6 +26,7 @@ import { deriveHealthViewModel } from "./utils/healthModel.js";
 import { diffPerfil, buildMedidaFromDiff, buildProgressoFromDiff } from "./utils/perfilDiff.js";
 import { PROGRESSO_EMOJIS } from "./data/constants.js";
 import { evaluateAdherenceTriggers } from "./utils/adherenceTriggers.js";
+import { usePendingRecovery } from "./hooks/usePendingRecovery.js";
 import "./styles/components/app-shell.css";
 import "./styles/components/header.css";
 import "./styles/components/bottom-nav.css";
@@ -297,6 +298,7 @@ export default function App() {
   const [planHistoryItems, setPlanHistoryItems] = useState([]);
   const [planHistoryLoading, setPlanHistoryLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [conversationReady, setConversationReady] = useState(false);
   const [removingPlan, setRemovingPlan] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const prevMsgsLen = useRef(0);
@@ -335,6 +337,11 @@ export default function App() {
         setCurrentConvoId(currentRes.id || null);
         setCurrentConvoMeta(normalizeConvoMeta(currentRes));
         setChatReadOnly(currentRes?.type === "plan" && currentRes?.isLatestPlanVersion === false);
+        // Restore CLI session ID for --resume continuity across page reloads
+        if (currentRes.cliSessionId) {
+          cliSessionIdRef.current = currentRes.cliSessionId;
+        }
+        setConversationReady(true);
         const archived = Array.isArray(archiveRes) ? archiveRes : [];
         setConvos(archived.map(c => ({
           id: c.id,
@@ -370,6 +377,7 @@ export default function App() {
         conversationId: currentConvoId,
         messages,
         meta: currentConvoMeta,
+        cliSessionId: cliSessionIdRef.current,
       }).then((res) => {
         if (res?.id) setCurrentConvoId(res.id);
       }).catch(() => {});
@@ -380,7 +388,8 @@ export default function App() {
   function applyCurrentConversation(conversation, options = {}) {
     const convo = conversation || null;
     const meta = normalizeConvoMeta(convo || {});
-    cliSessionIdRef.current = crypto.randomUUID();
+    // Restore persisted CLI session ID, or generate a new one for fresh conversations
+    cliSessionIdRef.current = convo?.cliSessionId || crypto.randomUUID();
     setCurrentConvoId(convo?.id || null);
     setCurrentConvoMeta(meta);
     setMessages(Array.isArray(convo?.messages) ? convo.messages : []);
@@ -469,8 +478,10 @@ export default function App() {
         planContext,
         autoAction: options.autoAction || null,
         _sessionId: cliSessionIdRef.current,
+        conversationId: currentConvoId,
       }
     );
+    const responseId = data?._responseId || null;
     const parsed = parseClaudeStructuredResponse(data);
 
     let appliedUpdates = [];
@@ -486,8 +497,13 @@ export default function App() {
       appliedUpdates = await applyUpdateBatch(guardedUpdates);
     }
 
+    // Acknowledge the pending response so it's not replayed on reconnect
+    if (responseId) {
+      post("/claude/pending/" + responseId + "/ack", {}).catch(() => {});
+    }
+
     return {
-      aiMsg: { role: "assistant", content: parsed.reply || "...", appliedUpdates },
+      aiMsg: { role: "assistant", content: parsed.reply || "...", appliedUpdates, _responseId: responseId },
       parsed,
     };
   }
@@ -890,6 +906,16 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [docsReady, isAuthenticated, docs.plano, docs.medidas, docs.progresso]);
 
+  // Response Inbox: recover missed AI responses on reconnect
+  // Must be BEFORE conditional returns to respect Rules of Hooks
+  const { hasInFlight } = usePendingRecovery({
+    isAuthenticated,
+    docsReady,
+    conversationReady,
+    currentConvoId,
+    setMessages,
+  });
+
   if (isLoading) return <LoadingScreen />;
   if (needsSetup) return <SetupForm />;
 
@@ -924,6 +950,9 @@ export default function App() {
             readOnly={chatReadOnly}
             inputPlaceholder={getChatPlaceholder(currentConvoMeta, chatReadOnly, generating)}
             contextBadge={getChatContextBadge(currentConvoMeta, chatReadOnly, generating)}
+            conversationId={currentConvoId}
+            cliSessionId={cliSessionIdRef.current}
+            hasInFlight={hasInFlight}
           />
         </div>
         {activeTab === "plano" && (
