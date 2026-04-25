@@ -8,6 +8,7 @@ App de coaching pessoal com IA para rotina alimentar, plano diario, historico de
 - Frontend servido em `/pt/`.
 - API exposta em `/api/pt/` no proxy e em `/api/` no backend local.
 - Integracao de IA feita exclusivamente via `ai-gateway`.
+- Modo Firebase em implementacao: `FIREBASE_BACKEND=true` troca SQLite/sessoes locais por Firebase Auth, Firestore e Cloud Tasks, preservando o runtime SQLite como padrao local/VPS.
 - Push notifications estao fora do escopo atual.
 
 ## O que o app faz hoje
@@ -50,6 +51,7 @@ App de coaching pessoal com IA para rotina alimentar, plano diario, historico de
 
 - Node.js 24+.
 - `ai-gateway` acessivel em `AI_GATEWAY_URL`.
+- Firebase Auth, Firestore, Functions, Hosting e Cloud Tasks quando `FIREBASE_BACKEND=true`.
 - Caddy/reverse proxy apenas quando quiser servir em `/pt/` e `/api/pt/` fora do modo local.
 
 ## Setup rapido
@@ -69,6 +71,8 @@ PORT=3400
 DATABASE_PATH=./data/personal-trainer.sqlite
 CORS_ALLOWED_ORIGINS=http://localhost:5174
 ```
+
+Para staging Firebase, use `FIREBASE_BACKEND=true`, configure `VITE_FIREBASE_*`, `BOOTSTRAP_SECRET`, `AI_GATEWAY_URL` para a URL direta do gateway Firebase e `CLOUD_TASKS_*` para a fila/Function dedicada `claudeWorker`. Use `AI_MODEL=gemini-3-flash` ou omita `AI_MODEL` para herdar o default do app no gateway serverless. O worker deve chamar o gateway com OIDC (`AI_GATEWAY_AUTH_AUDIENCE`) e o bootstrap semeia documentos vazios por padrao (`FIREBASE_BOOTSTRAP_SEED=empty`). Mantenha `CLOUD_TASKS_INFLIGHT_STALE_MS` maior que o timeout real do gateway; o codigo aplica no minimo `1.5 * GATEWAY_TIMEOUT_MS`.
 
 ## Scripts
 

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "private": true,
-  "main": "server.js",
+  "main": "firebase/functions.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -16,10 +16,14 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@google-cloud/tasks": "^5.5.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.1.2",
+    "google-auth-library": "^9.15.0",
     "helmet": "^8.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

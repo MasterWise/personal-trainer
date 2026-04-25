@@ -3,9 +3,9 @@ import { useAuth } from "./contexts/AuthContext.jsx";
 import { useDocs } from "./contexts/DocsContext.jsx";
 import { useTheme } from "./contexts/ThemeContext.jsx";
 import { useToast } from "./contexts/ToastContext.jsx";
-import { get, put, post, del } from "./services/api.js";
+import { API_BASE, get, put, post, del } from "./services/api.js";
 import { buildRelevantPlanContext, buildSystemInstructions, buildSystemContext } from "./data/prompts.js";
-import { sendMessage } from "./services/claudeService.js";
+import { getAsyncClaudeResponse, sendMessage } from "./services/claudeService.js";
 import {
   getClaudeResponseUserMessage,
   isClaudeResponseParseError,
@@ -35,9 +35,10 @@ import "./styles/components/accessibility.css";
 
 /* ── Auth screens ── */
 function SetupForm() {
-  const { signup } = useAuth();
+  const { signup, isFirebaseEnabled } = useAuth();
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [secret, setSecret] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -46,7 +47,7 @@ function SetupForm() {
     setError("");
     setLoading(true);
     try {
-      await signup(name, password);
+      await signup(name, password, secret);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -61,7 +62,8 @@ function SetupForm() {
       <p style={{ color: "var(--pt-color-text-muted)", marginBottom: "24px", fontSize: "14px", textAlign: "center" }}>Crie sua conta para começar</p>
       <form onSubmit={handleSubmit} style={{ width: "100%", maxWidth: "320px", display: "flex", flexDirection: "column", gap: "12px" }}>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" required style={{ padding: "12px 16px", borderRadius: "12px", border: "1px solid var(--pt-color-border)", background: "var(--pt-color-surface)", fontFamily: "var(--pt-font-body)", fontSize: "14px", color: "var(--pt-color-text)", outline: "none" }} />
-        <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Senha" required minLength={4} style={{ padding: "12px 16px", borderRadius: "12px", border: "1px solid var(--pt-color-border)", background: "var(--pt-color-surface)", fontFamily: "var(--pt-font-body)", fontSize: "14px", color: "var(--pt-color-text)", outline: "none" }} />
+        <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Senha" required minLength={6} style={{ padding: "12px 16px", borderRadius: "12px", border: "1px solid var(--pt-color-border)", background: "var(--pt-color-surface)", fontFamily: "var(--pt-font-body)", fontSize: "14px", color: "var(--pt-color-text)", outline: "none" }} />
+        <input value={secret} onChange={(e) => setSecret(e.target.value)} type="password" placeholder="Segredo de bootstrap" required={isFirebaseEnabled} style={{ padding: "12px 16px", borderRadius: "12px", border: "1px solid var(--pt-color-border)", background: "var(--pt-color-surface)", fontFamily: "var(--pt-font-body)", fontSize: "14px", color: "var(--pt-color-text)", outline: "none" }} />
         {error && <p style={{ color: "var(--pt-color-danger)", fontSize: "13px" }}>{error}</p>}
         <button type="submit" disabled={loading} style={{ padding: "12px", borderRadius: "12px", border: "none", background: "var(--pt-color-primary)", color: "#FFF", fontFamily: "var(--pt-font-body)", fontWeight: 700, fontSize: "15px", cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
           {loading ? "Criando..." : "Criar conta"}
@@ -72,7 +74,7 @@ function SetupForm() {
 }
 
 function LoginForm() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle, isFirebaseEnabled } = useAuth();
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -91,6 +93,18 @@ function LoginForm() {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      await loginWithGoogle();
+    } catch (err) {
+      setError(err.message || "Falha no login com Google");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", padding: "24px", background: "var(--pt-color-bg)" }}>
       <div style={{ width: "64px", height: "64px", borderRadius: "20px", background: "linear-gradient(135deg, var(--pt-color-primary-light), var(--pt-color-primary))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "28px", marginBottom: "20px", boxShadow: "0 6px 24px rgba(184,120,80,0.3)" }}>🌿</div>
@@ -103,6 +117,11 @@ function LoginForm() {
         <button type="submit" disabled={loading} style={{ padding: "12px", borderRadius: "12px", border: "none", background: "var(--pt-color-primary)", color: "#FFF", fontFamily: "var(--pt-font-body)", fontWeight: 700, fontSize: "15px", cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
           {loading ? "Entrando..." : "Entrar"}
         </button>
+        {isFirebaseEnabled && (
+          <button type="button" onClick={handleGoogleLogin} disabled={loading} style={{ padding: "12px", borderRadius: "12px", border: "1px solid var(--pt-color-border)", background: "var(--pt-color-surface)", color: "var(--pt-color-text)", fontFamily: "var(--pt-font-body)", fontWeight: 700, fontSize: "15px", cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
+            Entrar com Google
+          </button>
+        )}
       </form>
     </div>
   );
@@ -125,7 +144,7 @@ function RegisterForm() {
       setInviteError("Nenhum código de convite informado");
       return;
     }
-    fetch(`/api/pt/auth/invite/${encodeURIComponent(inviteCode)}`)
+    fetch(`${API_BASE}/auth/invite/${encodeURIComponent(inviteCode)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.valid) {
@@ -481,7 +500,13 @@ export default function App() {
         conversationId: currentConvoId,
       }
     );
-    const responseId = data?._responseId || null;
+    const asyncResponse = getAsyncClaudeResponse(data);
+    if (asyncResponse) {
+      trackPendingResponse(asyncResponse);
+      return { queued: asyncResponse };
+    }
+
+    const responseId = data?.responseId || data?._responseId || null;
     const parsed = parseClaudeStructuredResponse(data);
 
     let appliedUpdates = [];
@@ -614,7 +639,7 @@ export default function App() {
       setMessages(newMsgs);
 
       try {
-        const { aiMsg } = await requestClaudeForMessages(newMsgs, {
+        const result = await requestClaudeForMessages(newMsgs, {
           ...convoMeta,
           type: "plan",
           planDate: planoDate,
@@ -626,7 +651,7 @@ export default function App() {
             planDate: planoDate,
           }),
         });
-        setMessages(prev => [...prev, aiMsg]);
+        if (result?.aiMsg) setMessages(prev => [...prev, result.aiMsg]);
       } catch (e) {
         if (isClaudeResponseParseError(e)) {
           console.error("generatePlan parse error:", e.code, e.meta, e);
@@ -908,7 +933,7 @@ export default function App() {
 
   // Response Inbox: recover missed AI responses on reconnect
   // Must be BEFORE conditional returns to respect Rules of Hooks
-  const { hasInFlight } = usePendingRecovery({
+  const { hasInFlight, trackPendingResponse } = usePendingRecovery({
     isAuthenticated,
     docsReady,
     conversationReady,
@@ -953,6 +978,7 @@ export default function App() {
             conversationId={currentConvoId}
             cliSessionId={cliSessionIdRef.current}
             hasInFlight={hasInFlight}
+            onAsyncResponseQueued={trackPendingResponse}
           />
         </div>
         {activeTab === "plano" && (

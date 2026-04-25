@@ -2,6 +2,16 @@ import { post } from "./api.js";
 import { buildResponseSchemaForInteraction } from "./claudeSchema.js";
 
 const INTERACTION_CONTEXT_TIMEZONE = "America/Sao_Paulo";
+const ASYNC_RESPONSE_STATUSES = new Set(["queued", "in_flight"]);
+
+export function getAsyncClaudeResponse(response) {
+  const responseId = response?.responseId || response?._responseId || response?.id || null;
+  const status = typeof response?.status === "string"
+    ? response.status.toLowerCase()
+    : null;
+  if (!responseId || !ASYNC_RESPONSE_STATUSES.has(status)) return null;
+  return { responseId, status };
+}
 
 function parseGmtOffsetToIso(offsetLabel) {
   const match = /^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/.exec(offsetLabel || "");

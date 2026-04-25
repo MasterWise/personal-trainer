@@ -1,42 +1,66 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { getAuthToken, setAuthToken } from "../main.jsx";
+import {
+  API_BASE,
+  get,
+  post,
+  setAuthTokenProvider,
+  setStoredAuthToken,
+} from "../services/api.js";
+import {
+  getFirebaseIdToken,
+  hasFirebaseConfig,
+  loginWithFirebaseEmail,
+  loginWithFirebaseGoogle,
+  logoutFirebase,
+  mapFirebaseUser,
+  onFirebaseAuthChanged,
+  registerWithFirebaseEmail,
+} from "../services/firebaseAuthClient.js";
 
 const AuthContext = createContext(null);
 
-const API_BASE = "/api/pt";
+function isEmailAddress(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+async function readError(res, fallback) {
+  const data = await res.json().catch(() => ({}));
+  return data.error || fallback;
+}
+
+function requireBackendUser(backendUser) {
+  if (!backendUser) {
+    throw new Error("Perfil do app nao encontrado. Use um convite ou fale com um administrador.");
+  }
+  return backendUser;
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
   const isAuthenticated = !!user;
+  const isFirebaseEnabled = hasFirebaseConfig;
 
   const fetchMe = useCallback(async () => {
-    const token = getAuthToken();
-    if (!token) return null;
     try {
-      const res = await fetch(`${API_BASE}/auth/me`, {
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.user || data;
-      }
+      const data = await get("/auth/me");
+      return data.user || data;
     } catch { /* ignore */ }
     return null;
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    async function init() {
+
+    setAuthTokenProvider(hasFirebaseConfig ? () => getFirebaseIdToken() : null);
+
+    async function loadLocalSession({ allowSetupScreen = true } = {}) {
       try {
         const statusRes = await fetch(`${API_BASE}/auth/status`);
         if (statusRes.ok) {
           const status = await statusRes.json();
-          if (status.needsSetup) {
+          if (status.needsSetup && allowSetupScreen) {
             if (!cancelled) {
               setNeedsSetup(true);
               setIsLoading(false);
@@ -56,40 +80,113 @@ export function AuthProvider({ children }) {
         if (!cancelled) setIsLoading(false);
       }
     }
-    init();
-    return () => { cancelled = true; };
+
+    async function init() {
+      if (!hasFirebaseConfig) {
+        await loadLocalSession();
+        return;
+      }
+
+      let unsubscribe = null;
+      try {
+        unsubscribe = await onFirebaseAuthChanged(async (firebaseUser) => {
+          if (cancelled) return;
+          if (!firebaseUser) {
+            await loadLocalSession({ allowSetupScreen: false });
+            return;
+          }
+
+          const backendUser = await fetchMe();
+          if (!cancelled) {
+            setUser(backendUser ? mapFirebaseUser(firebaseUser, backendUser) : null);
+            setNeedsSetup(false);
+            setIsLoading(false);
+          }
+        });
+      } catch {
+        setAuthTokenProvider(null);
+        await loadLocalSession();
+      }
+
+      return unsubscribe;
+    }
+
+    let unsubscribePromise = init();
+    return () => {
+      cancelled = true;
+      Promise.resolve(unsubscribePromise).then((unsubscribe) => {
+        if (typeof unsubscribe === "function") unsubscribe();
+      });
+    };
   }, [fetchMe]);
 
   const login = useCallback(async (name, password) => {
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, password }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Falha no login");
+    const identifier = String(name || "").trim();
+
+    if (hasFirebaseConfig && isEmailAddress(identifier)) {
+      let firebaseUser = null;
+      try {
+        firebaseUser = await loginWithFirebaseEmail(identifier, password);
+      } catch {
+        // Fallback local para manter compatibilidade durante a transicao.
+      }
+
+      if (firebaseUser) {
+        setStoredAuthToken(null);
+        const backendUser = await fetchMe();
+        if (!backendUser) {
+          await logoutFirebase().catch(() => {});
+          throw new Error("Perfil do app nao encontrado. Use um convite ou fale com um administrador.");
+        }
+        const nextUser = mapFirebaseUser(firebaseUser, backendUser);
+        setUser(nextUser);
+        setNeedsSetup(false);
+        return nextUser;
+      }
     }
-    const data = await res.json();
-    setAuthToken(data.token);
+
+    const data = await post("/auth/login", { name: identifier, password });
+    setStoredAuthToken(data.token);
     const me = await fetchMe();
     setUser(me);
     setNeedsSetup(false);
     return me;
   }, [fetchMe]);
 
-  const signup = useCallback(async (name, password) => {
+  const signup = useCallback(async (name, password, secret) => {
+    const identifier = String(name || "").trim();
+
+    if (hasFirebaseConfig) {
+      if (!isEmailAddress(identifier)) {
+        throw new Error("No modo Firebase, o primeiro cadastro deve usar um e-mail valido.");
+      }
+
+      const firebaseUser = await registerWithFirebaseEmail(identifier, password);
+      setStoredAuthToken(null);
+      try {
+        await post("/auth/setup", { secret });
+        await getFirebaseIdToken(true).catch(() => null);
+        const backendUser = requireBackendUser(await fetchMe());
+        const nextUser = mapFirebaseUser(firebaseUser, backendUser);
+        setUser(nextUser);
+        setNeedsSetup(false);
+        return nextUser;
+      } catch (error) {
+        await logoutFirebase().catch(() => {});
+        throw error;
+      }
+    }
+
     const res = await fetch(`${API_BASE}/auth/setup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, password }),
+      body: JSON.stringify({ name: identifier, password, secret }),
     });
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Falha no cadastro");
+      throw new Error(await readError(res, "Falha no cadastro"));
     }
     const data = await res.json();
-    setAuthToken(data.token);
+    setStoredAuthToken(data.token);
     const me = await fetchMe();
     setUser(me);
     setNeedsSetup(false);
@@ -97,43 +194,73 @@ export function AuthProvider({ children }) {
   }, [fetchMe]);
 
   const register = useCallback(async (name, password, invite) => {
-    const res = await fetch(`${API_BASE}/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, password, invite }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Falha no registro");
+    const identifier = String(name || "").trim();
+
+    if (hasFirebaseConfig && isEmailAddress(identifier)) {
+      const firebaseUser = await registerWithFirebaseEmail(identifier, password);
+      setStoredAuthToken(null);
+      let backendUser = null;
+      try {
+        await post("/auth/register", { name: identifier, password, invite });
+        backendUser = await fetchMe();
+      } catch {
+        backendUser = await fetchMe();
+        if (!backendUser) {
+          await logoutFirebase().catch(() => {});
+          throw new Error("Conta Firebase criada, mas o perfil do app nao foi ativado pelo backend");
+        }
+      }
+      const nextUser = mapFirebaseUser(firebaseUser, backendUser);
+      setUser(nextUser);
+      setNeedsSetup(false);
+      return nextUser;
     }
-    const data = await res.json();
-    setAuthToken(data.token);
+
+    const data = await post("/auth/register", { name: identifier, password, invite });
+    setStoredAuthToken(data.token);
     const me = await fetchMe();
     setUser(me);
     setNeedsSetup(false);
     return me;
   }, [fetchMe]);
 
+  const loginWithGoogle = useCallback(async () => {
+    const firebaseUser = await loginWithFirebaseGoogle();
+    setStoredAuthToken(null);
+    const backendUser = await fetchMe();
+    if (!backendUser) {
+      await logoutFirebase().catch(() => {});
+      throw new Error("Perfil do app nao encontrado. Use um convite ou fale com um administrador.");
+    }
+    const nextUser = mapFirebaseUser(firebaseUser, backendUser);
+    setUser(nextUser);
+    setNeedsSetup(false);
+    return nextUser;
+  }, [fetchMe]);
+
   const logout = useCallback(async () => {
+    await post("/auth/logout", {}).catch(() => {});
     try {
-      const token = getAuthToken();
-      if (token) {
-        await fetch(`${API_BASE}/auth/logout`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`,
-          },
-        });
-      }
+      if (hasFirebaseConfig) await logoutFirebase();
     } catch { /* ignore */ }
-    setAuthToken(null);
+    setStoredAuthToken(null);
     setUser(null);
     setNeedsSetup(false);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, needsSetup, isAuthenticated, login, signup, register, logout }}>
+    <AuthContext.Provider value={{
+      user,
+      isLoading,
+      needsSetup,
+      isAuthenticated,
+      isFirebaseEnabled,
+      login,
+      loginWithGoogle,
+      signup,
+      register,
+      logout,
+    }}>
       {children}
     </AuthContext.Provider>
   );

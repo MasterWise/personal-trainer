@@ -5,17 +5,8 @@ import "dotenv/config";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
-
-// Inicializa DB + migrations (side-effect: roda migrations no import)
-import "./db/index.js";
-
-// Routes
-import healthRoutes from "./routes/health.js";
-import authRoutes from "./routes/auth.js";
-import claudeRoutes from "./routes/claude.js";
-import documentRoutes from "./routes/documents.js";
-import conversationRoutes from "./routes/conversations.js";
 import { createGlobalRateLimit, createLoginRateLimit } from "./middleware/security.js";
+import { isFirebaseBackendEnabled } from "./config/backend.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,11 +59,11 @@ export async function createApp(options = {}) {
       contentSecurityPolicy: isProd ? {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'"],
+          scriptSrc: ["'self'", "https://www.gstatic.com"],
           styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
           imgSrc: ["'self'", "data:", "blob:"],
-          connectSrc: ["'self'"],
+          connectSrc: ["'self'", "https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com"],
           manifestSrc: ["'self'"],
           workerSrc: ["'self'", "blob:"],
         },
@@ -132,11 +123,31 @@ export async function createApp(options = {}) {
   app.use("/api/auth/login", loginRateLimit);
 
   // API Routes (before static/vite middleware)
-  app.use(healthRoutes());
-  app.use(authRoutes());
-  app.use(claudeRoutes());
-  app.use(documentRoutes());
-  app.use(conversationRoutes());
+  if (isFirebaseBackendEnabled()) {
+    const { default: healthRoutes } = await import("./routes/firebaseHealth.js");
+    const { default: authRoutes } = await import("./routes/firebaseAuth.js");
+    const { default: claudeRoutes } = await import("./routes/firebaseClaude.js");
+    const { default: documentRoutes } = await import("./routes/firebaseDocuments.js");
+    const { default: conversationRoutes } = await import("./routes/firebaseConversations.js");
+    app.use(healthRoutes());
+    app.use(authRoutes());
+    app.use(claudeRoutes());
+    app.use(documentRoutes());
+    app.use(conversationRoutes());
+  } else {
+    // Inicializa DB + migrations apenas no runtime SQLite local/VPS.
+    await import("./db/index.js");
+    const { default: healthRoutes } = await import("./routes/health.js");
+    const { default: authRoutes } = await import("./routes/auth.js");
+    const { default: claudeRoutes } = await import("./routes/claude.js");
+    const { default: documentRoutes } = await import("./routes/documents.js");
+    const { default: conversationRoutes } = await import("./routes/conversations.js");
+    app.use(healthRoutes());
+    app.use(authRoutes());
+    app.use(claudeRoutes());
+    app.use(documentRoutes());
+    app.use(conversationRoutes());
+  }
 
   if (!enableSpa) {
     return app;

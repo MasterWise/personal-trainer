@@ -22,6 +22,8 @@
 - **Problema resolvido**: Se o usuario saisse da tela enquanto a IA estava gerando resposta (1-5 min), a resposta era perdida e a CLI session ficava dessincronizada.
 - **Solucao**: O backend (`routes/claude.js`) salva a resposta na tabela `pending_ai_responses` ANTES de devolver ao frontend. Se o frontend perder a resposta, recupera no proximo load.
 - **Tabela**: `pending_ai_responses` (migration 007) — id, user_id, conversation_id, cli_session_id, response_raw, status, expires_at (24h TTL).
+- **Modo Firebase**: `routes/firebaseClaude.js` cria `users/{uid}/pendingResponses/{responseId}` com `queued`, enfileira Cloud Task para a Function dedicada `claudeWorker` e retorna `202` rapidamente; `firebase/worker.js` processa a chamada ao gateway com OIDC, troca para `in_flight` e depois `pending`/`failed`.
+- **Idempotencia Firebase**: o worker usa `responseId` como chave de task e `claimForProcessing` so chama IA quando o status esta `queued` ou `in_flight` antigo; retries nao devem duplicar chamada quando o item ja foi processado.
 - **Endpoints novos**: `GET /api/claude/pending`, `GET /api/claude/pending/:id`, `POST /api/claude/pending/:id/ack`.
 - **Frontend**: `src/hooks/usePendingRecovery.js` verifica pendentes no load, aplica mutations via `replayGuard.js` (pre-screening de idempotencia), e envia ack.
 - **Session persist**: `conversations.cli_session_id` armazena o _sessionId do CLI bridge. Restaurado no load para manter --resume funcional apos page reloads.

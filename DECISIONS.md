@@ -4,6 +4,17 @@
 
 | Decisao | Motivo |
 |---|---|
+| Firebase backend paralelo por flag | `FIREBASE_BACKEND=true` permite desenvolver Hosting/Functions/Auth/Firestore sem quebrar o runtime SQLite da VPS |
+| Firestore recria conceitos, sem importar SQLite automaticamente | Cutover sera tratado como re-onboarding, preservando escolha de nao migrar dados existentes por padrao |
+| Response Inbox assincrona via Cloud Tasks | Evita timeout de Hosting/Functions em chamadas longas de IA e preserva recuperacao apos reload |
+| Worker Firebase dedicado | Cloud Tasks chama somente a Function `claudeWorker` com timeout longo; a API HTTP curta nao monta rota interna de worker |
+| OIDC entre worker e ai-gateway | Worker envia ID token ao gateway e o gateway deve validar service account/audience antes de queimar quota Vertex |
+| Firestore state docs para invariantes | Conversa atual e contador de versoes de plano usam documentos determinísticos em transações, em vez de depender de queries concorrentes |
+| Reclaim de `in_flight` antigo | PendingResponses em processamento podem ser reclamadas apos `max(CLOUD_TASKS_INFLIGHT_STALE_MS, 1.5 * GATEWAY_TIMEOUT_MS)`, evitando orfaos sem duplicar chamada Vertex ainda viva |
+| Timeout do gateway como erro transitorio | Timeout/falha de rede no worker mantem `pendingResponses` em `in_flight` para retry da Cloud Task; apenas erro deterministico vira `failed` |
+| Rate limit Firebase via Firestore | `/api/claude` em modo Firebase usa contador transacional compartilhado entre instancias, com TTL em `rateLimits.expiresAt`, nao memoria local da Function |
+| Admin via Firebase Auth custom claims | Autorizacao sensivel fica no token validado pelo backend; espelho em perfil serve apenas UI/metadado |
+| `AI_MODEL=gemini-3-flash` ou default do gateway | Garante que o personal-trainer use Gemini no gateway Firebase sem depender do default local Claude CLI |
 | Inline styles + CSS classes | Compatibilidade com tema dinamico + CSS variables |
 | `window.storage` abstraction | Permite fallback localStorage quando offline |
 | Backend proxy via ai-gateway | Centralizar chamadas Claude, multi-provider e proteger API key |
@@ -12,7 +23,7 @@
 | `plano` como fonte canonica do dia | Checkboxes, nutricao e treino realizado passam a nascer do plano; `cal` e `treinos` viram projeções/cache |
 | 9 documentos separados | Granularidade de edicao e persistencia |
 | `is_current` flag em conversations | Separa conversa ativa de arquivadas |
-| Seed defaults no setup | Primeiro usuario ja nasce com contexto inicial da Renata |
+| Seed defaults no setup | Runtime SQLite mantem contexto inicial da Renata; Firebase bootstrap usa documentos vazios por padrao e so usa seed Renata com `FIREBASE_BOOTSTRAP_SEED=renata` |
 | `perfil.treinos_planejados` como agenda semanal | Evita duplicidade de fonte entre Perfil e Saúde |
 | `DocsContext` com store central e mutacoes coordenadas | Evita falha silenciosa e centraliza rebuild de projeções derivadas |
 | `/api/health` como health operacional unico | Mantem simplicidade da VPS e ainda verifica SQLite + gateway |

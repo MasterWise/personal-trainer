@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "../../contexts/ThemeContext.jsx";
 import { buildRelevantPlanContext, buildSystemInstructions, buildSystemContext } from "../../data/prompts.js";
-import { sendMessage } from "../../services/claudeService.js";
+import { getAsyncClaudeResponse, sendMessage } from "../../services/claudeService.js";
 import {
   getClaudeResponseUserMessage,
   isClaudeResponseParseError,
@@ -105,6 +105,7 @@ export default function ChatTab({
   conversationId = null,
   cliSessionId: cliSessionIdProp = null,
   hasInFlight = false,
+  onAsyncResponseQueued = null,
 }) {
   const { applyUpdateBatch } = useDocs();
   const { theme } = useTheme();
@@ -166,7 +167,14 @@ export default function ChatTab({
           conversationId,
         }
       );
-      const responseId = data?._responseId || null;
+      const asyncResponse = getAsyncClaudeResponse(data);
+      if (asyncResponse) {
+        onAsyncResponseQueued?.(asyncResponse);
+        setLoading(false);
+        return;
+      }
+
+      const responseId = data?.responseId || data?._responseId || null;
       const parsed = parseClaudeStructuredResponse(data);
       const updates = parsed.updates || [];
       const preparedEntries = updates

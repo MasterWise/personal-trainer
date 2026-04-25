@@ -5,37 +5,16 @@ import { ThemeProvider } from "./contexts/ThemeContext.jsx";
 import { AuthProvider } from "./contexts/AuthContext.jsx";
 import { DocsProvider } from "./contexts/DocsContext.jsx";
 import { ToastProvider } from "./contexts/ToastContext.jsx";
+import { get, put, getAuthToken } from "./services/api.js";
 import App from "./App.jsx";
-
-const TOKEN_KEY = "pt-auth-token";
-const API_BASE = "/api/pt";
-
-export function getAuthToken() {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setAuthToken(token) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
-}
-
-function authHeaders() {
-  const headers = { "Content-Type": "application/json" };
-  const token = getAuthToken();
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return headers;
-}
 
 window.storage = {
   get: async (key) => {
-    const token = getAuthToken();
+    const token = await getAuthToken();
     if (token) {
       try {
-        const res = await fetch(`${API_BASE}/documents/${key}`, { headers: authHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          return { value: data.content };
-        }
+        const data = await get(`/documents/${key}`);
+        return { value: data.content };
       } catch { /* fallback */ }
     }
     const val = localStorage.getItem(`pt-data-${key}`);
@@ -43,14 +22,10 @@ window.storage = {
   },
   set: async (key, value) => {
     localStorage.setItem(`pt-data-${key}`, value);
-    const token = getAuthToken();
+    const token = await getAuthToken();
     if (token) {
       try {
-        await fetch(`${API_BASE}/documents/${key}`, {
-          method: "PUT",
-          headers: authHeaders(),
-          body: JSON.stringify({ content: value }),
-        });
+        await put(`/documents/${key}`, { content: value });
       } catch { /* localStorage only */ }
     }
   },

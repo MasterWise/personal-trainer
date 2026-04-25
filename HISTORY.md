@@ -6,6 +6,8 @@
 - Para racional tecnico estavel, consulte [DECISIONS.md](F:/GitProjects/vps-mw-aiserver/projects/github/personal-trainer/DECISIONS.md).
 
 ## Linha do tempo
+- 2026-04-25 - Modo Firebase recebeu hardening pos-review: bootstrap exige `BOOTSTRAP_SECRET` em qualquer ambiente, seed inicial padrao ficou vazio, Cloud Tasks chama apenas a Function `claudeWorker`, worker autentica no ai-gateway por OIDC, invariantes de conversa/plano passaram a transações com `_state`, `getCurrent` passou a ler `_state` primeiro, timeout do gateway ficou transitorio, `in_flight` antigo respeita piso de `1.5 * GATEWAY_TIMEOUT_MS` e rate limit Firebase saiu da memoria local com TTL em Firestore.
+- 2026-04-25 - Iniciado modo Firebase paralelo com `FIREBASE_BACKEND=true`: Auth via Firebase ID token, perfis/documentos/conversas/logs/convites/pendingResponses em Firestore, Cloud Tasks para chamadas longas de IA e frontend preparado para respostas `queued`/`in_flight`.
 - 2026-04-12 - `Plano` e `Saude` passaram a compartilhar a mesma data selecionada; a aba `Saude` agora lê projeções derivadas de `plano` + `perfil.treinos_planejados`, e `cal`/`treinos` passaram a ser mantidos como cache de compatibilidade.
 - 2026-04-12 - `DocsContext` ganhou `docsStatus`, `docsError`, mutações coordenadas via batch e rebuild central de cache de saúde, eliminando parte relevante das falhas silenciosas de persistência.
 - 2026-04-12 - Persistência de conversas deixou de truncar `messages`, `PUT /api/conversations/current` passou a aceitar `conversationId`, e fluxos de `reset`/`restore` passaram a invalidar a conversa atual.

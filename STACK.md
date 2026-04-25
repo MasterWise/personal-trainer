@@ -11,7 +11,7 @@ Use este arquivo para entender stack, arquitetura, contratos de execucao e limit
 | Backend | Express 4 | `app.js` + `server.js` |
 | Frontend | React 18 | JSX puro, sem TypeScript |
 | Build | Vite 6 + plugin React | base path `/pt/` |
-| Banco | SQLite nativo (`node:sqlite`) | migrations SQL e prepared statements |
+| Banco | SQLite nativo (`node:sqlite`) / Firestore | SQLite e padrao local/VPS; Firestore entra com `FIREBASE_BACKEND=true` |
 | Testes | Vitest + Supertest + Testing Library + jsdom | node por padrao, jsdom para UI/contexto |
 | IA | `ai-gateway` | Claude via proxy, nunca direto do frontend |
 
@@ -61,6 +61,9 @@ Ordem atual:
 - Migrations numeradas em `db/migrations/*.sql`.
 - Documentos por usuario ficam na tabela de docs e sao expostos pelas rotas `/api/documents`.
 - `seedDefaults.js` cria o pacote inicial de documentos da Renata no primeiro setup/restore.
+- Em modo Firebase, `firebase/repositories.js` recria users, documents, conversations, aiLogs, invites, rateLimits e pendingResponses em Firestore, com seeds vindos de `db/defaultDocuments.js`.
+- Em modo Firebase, conversas atuais e versoes de plano usam documentos determinísticos em `users/{uid}/_state` dentro de transações para preservar unicidade sob concorrencia.
+- Em modo Firebase, `POST /api/claude` e assincrono: cria `pendingResponses`, enfileira Cloud Tasks para a Function dedicada `claudeWorker` e o worker atualiza o status apos chamar o gateway com OIDC.
 
 ### Documentos vivos
 
@@ -259,17 +262,29 @@ Fora do escopo atual:
 
 ```env
 AI_GATEWAY_URL=http://localhost:3500
-GATEWAY_TIMEOUT_MS=180000
+GATEWAY_TIMEOUT_MS=500000
 REASONING_EFFORT=low
 MAX_INPUT_TOKENS=200000
 MAX_OUTPUT_TOKENS=64000
 PORT=3400
 DATABASE_PATH=./data/personal-trainer.sqlite
+FIREBASE_BACKEND=false
+FIREBASE_FUNCTIONS_REGION=southamerica-east1
+AI_MODEL=
+VITE_API_BASE_URL=/api/pt
+BOOTSTRAP_SECRET=
+FIREBASE_BOOTSTRAP_SEED=empty
+CLOUD_TASKS_INFLIGHT_STALE_MS=600000
+AI_GATEWAY_AUTH_AUDIENCE=
+AI_GATEWAY_AUTH_DISABLED=false
 CORS_ALLOWED_ORIGINS=http://localhost:5174
 RATE_LIMIT_GLOBAL_MAX=60
 RATE_LIMIT_LOGIN_MAX=5
 RATE_LIMIT_CLAUDE_MAX=10
+RATE_LIMIT_CLAUDE_WINDOW_MS=300000
 ```
+
+No modo Firebase, `CLOUD_TASKS_INFLIGHT_STALE_MS` e tratado como piso configuravel: o repository aplica no minimo `1.5 * GATEWAY_TIMEOUT_MS` antes de reprocessar um item `in_flight`. A colecao top-level `rateLimits` usa `expiresAt` como `Date` e tem TTL declarada em `firestore.indexes.json`.
 
 ### Vite
 

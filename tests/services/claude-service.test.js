@@ -13,7 +13,7 @@ vi.mock("../../src/services/claudeSchema.js", () => ({
   buildResponseSchemaForInteraction: mocks.buildResponseSchemaForInteraction,
 }));
 
-import { sendMessage } from "../../src/services/claudeService.js";
+import { getAsyncClaudeResponse, sendMessage } from "../../src/services/claudeService.js";
 
 beforeEach(() => {
   mocks.post.mockReset();
@@ -98,5 +98,27 @@ describe("sendMessage", () => {
     expect(payload.messages[1].content).toEqual([{ type: "text", text: "contexto anterior" }]);
     expect(payload.messages[2].content).toEqual([{ type: "text", text: "" }]);
     expect(payload.interaction_context).toContain("conversation_type: general");
+  });
+});
+
+describe("getAsyncClaudeResponse", () => {
+  it("aceita contratos assincronos com responseId em status queued/in_flight", () => {
+    expect(getAsyncClaudeResponse({ responseId: "r-1", status: "queued" })).toEqual({
+      responseId: "r-1",
+      status: "queued",
+    });
+    expect(getAsyncClaudeResponse({ _responseId: "r-2", status: "in_flight" })).toEqual({
+      responseId: "r-2",
+      status: "in_flight",
+    });
+  });
+
+  it("normaliza status em caixa alta e ignora respostas nao assincronas", () => {
+    expect(getAsyncClaudeResponse({ id: "r-3", status: "QUEUED" })).toEqual({
+      responseId: "r-3",
+      status: "queued",
+    });
+    expect(getAsyncClaudeResponse({ responseId: "r-4", status: "pending" })).toBeNull();
+    expect(getAsyncClaudeResponse({ status: "queued" })).toBeNull();
   });
 });
