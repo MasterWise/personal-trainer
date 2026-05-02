@@ -26,13 +26,20 @@ async function loadAuthClient() {
     authClientPromise = Promise.all([
       import(/* @vite-ignore */ FIREBASE_APP_SDK_URL),
       import(/* @vite-ignore */ FIREBASE_AUTH_SDK_URL),
-    ]).then(([appSdk, authSdk]) => {
+    ]).then(async ([appSdk, authSdk]) => {
       const existingApp = appSdk.getApps().find((app) => app.name === "[DEFAULT]");
       const app = existingApp || appSdk.initializeApp(firebaseConfig);
-      return {
-        auth: authSdk.getAuth(app),
-        authSdk,
-      };
+      const auth = authSdk.getAuth(app);
+      // Force LOCAL persistence (IndexedDB / localStorage) so the user stays
+      // logged in across tab closes and browser restarts. The Firebase default
+      // is already LOCAL, but in some popup/iframe scenarios it silently falls
+      // back to SESSION; setting it explicitly avoids that surprise.
+      try {
+        await authSdk.setPersistence(auth, authSdk.browserLocalPersistence);
+      } catch (error) {
+        console.warn("[firebaseAuth] setPersistence(LOCAL) failed:", error?.message);
+      }
+      return { auth, authSdk };
     });
   }
   return authClientPromise;

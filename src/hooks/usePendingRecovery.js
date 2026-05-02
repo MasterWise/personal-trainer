@@ -4,6 +4,10 @@ import { parseClaudeStructuredResponse } from "../services/claudeResponseParser.
 import { useDocs } from "../contexts/DocsContext.jsx";
 import { useToast } from "../contexts/ToastContext.jsx";
 import { filterUnappliedUpdates } from "../utils/replayGuard.js";
+import { lockPlanUpdateToDate } from "../utils/planUpdateGuard.js";
+import { enforcePlanUserCheckedPermission } from "../utils/planPermissionGuard.js";
+import { enforcePerfilPermission } from "../utils/perfilPermissionGuard.js";
+import { buildPermissionGroups } from "../utils/permissionGroups.js";
 
 const POLL_INTERVAL_MS = 5000;
 const ACTIVE_RESPONSE_STATUSES = new Set(["queued", "in_flight"]);
@@ -28,17 +32,34 @@ function normalizeResponseStatus(status) {
  * @param {Function} options.setMessages
  * @returns {{ recovering: boolean, recoveredCount: number, hasInFlight: boolean, trackPendingResponse: Function }}
  */
-export function usePendingRecovery({ isAuthenticated, docsReady, conversationReady, currentConvoId, setMessages }) {
+export function usePendingRecovery({
+  isAuthenticated,
+  docsReady,
+  conversationReady,
+  currentConvoId,
+  currentConvoMeta = null,
+  setMessages,
+  onPermissionGroups = null,
+}) {
   const hasCheckedRef = useRef(false);
   const pollIntervalRef = useRef(null);
+  // IDs created in this browser session — used to suppress the
+  // "recovered" toast for responses produced by the user's own actions.
+  const sessionCreatedRef = useRef(new Set());
   const [recovering, setRecovering] = useState(false);
   const [recoveredCount, setRecoveredCount] = useState(0);
   const [hasInFlight, setHasInFlight] = useState(false);
   const { applyUpdateBatch, docs } = useDocs();
   const toast = useToast();
-  // Keep a ref to currentConvoId so polling callbacks see the latest value
+  // Keep refs so polling callbacks see the latest value without re-creating intervals
   const currentConvoIdRef = useRef(currentConvoId);
   currentConvoIdRef.current = currentConvoId;
+  const currentConvoMetaRef = useRef(currentConvoMeta);
+  currentConvoMetaRef.current = currentConvoMeta;
+  const onPermissionGroupsRef = useRef(onPermissionGroups);
+  onPermissionGroupsRef.current = onPermissionGroups;
+  const docsRef = useRef(docs);
+  docsRef.current = docs;
 
   // Process a single pending response (replay mutations + add message)
   const processPendingItem = useCallback(async (item) => {
@@ -51,15 +72,38 @@ export function usePendingRecovery({ isAuthenticated, docsReady, conversationRea
         : full.response_raw;
       const parsed = parseClaudeStructuredResponse(rawResponse);
 
-      // Apply document mutations (pre-screened for idempotency)
-      const updates = parsed.updates || [];
-      const directUpdates = updates.filter(u => !u.requiresPermission);
+      const liveDocs = docsRef.current;
+      const meta = currentConvoMetaRef.current;
+      const planDateLock = meta?.type === "plan" ? (meta.planDate || null) : null;
+
+      const preparedEntries = (parsed.updates || [])
+        .map((u) => lockPlanUpdateToDate(u, planDateLock, liveDocs.plano, { allowPlanReplaceAll: false }))
+        .filter(Boolean)
+        .map((u) => enforcePlanUserCheckedPermission(u, liveDocs.plano))
+        .map((entry) => {
+          if (entry.requiresPermission) return entry;
+          const perfilCheck = enforcePerfilPermission(entry.update, liveDocs.perfil);
+          return perfilCheck.requiresPermission ? perfilCheck : entry;
+        });
+
+      const directUpdates = preparedEntries
+        .filter((entry) => !entry.update?.requiresPermission)
+        .map((entry) => entry.update);
+      const permEntries = preparedEntries.filter((entry) => entry.update?.requiresPermission);
+
+      let appliedUpdates = [];
       if (directUpdates.length > 0) {
-        const unapplied = filterUnappliedUpdates(directUpdates, docs);
+        const unapplied = filterUnappliedUpdates(directUpdates, liveDocs);
         if (unapplied.length > 0) {
-          await applyUpdateBatch(unapplied);
+          appliedUpdates = await applyUpdateBatch(unapplied);
         }
       }
+
+      if (permEntries.length > 0 && onPermissionGroupsRef.current) {
+        onPermissionGroupsRef.current(buildPermissionGroups(permEntries));
+      }
+
+      const wasCreatedHere = sessionCreatedRef.current.has(item.id);
 
       // Add the AI message to the conversation
       const convoId = currentConvoIdRef.current;
@@ -68,7 +112,8 @@ export function usePendingRecovery({ isAuthenticated, docsReady, conversationRea
           role: "assistant",
           content: parsed.reply || "...",
           _responseId: item.id,
-          _recovered: true,
+          _recovered: !wasCreatedHere,
+          appliedUpdates,
           timestamp: item.created_at || item.createdAt || new Date().toISOString(),
         };
         setMessages(prev => [...prev, aiMsg]);
@@ -76,11 +121,13 @@ export function usePendingRecovery({ isAuthenticated, docsReady, conversationRea
 
       // Acknowledge
       await post("/claude/pending/" + item.id + "/ack", {}).catch(() => {});
-      return true;
+      sessionCreatedRef.current.delete(item.id);
+      return { ok: true, wasCreatedHere };
     } catch (e) {
       console.error("[PendingRecovery] Error processing item:", item.id, e);
       await post("/claude/pending/" + item.id + "/ack", {}).catch(() => {});
-      return false;
+      sessionCreatedRef.current.delete(item.id);
+      return { ok: false, wasCreatedHere: sessionCreatedRef.current.has(item.id) };
     }
   }, [docs, applyUpdateBatch, setMessages]);
 
@@ -105,16 +152,16 @@ export function usePendingRecovery({ isAuthenticated, docsReady, conversationRea
         const pending = items.filter(i => normalizeResponseStatus(i.status) === "pending");
 
         // Process any newly completed responses
-        let count = 0;
+        let recoveredCount = 0;
         for (const item of pending) {
-          const ok = await processPendingItem(item);
-          if (ok) count++;
+          const result = await processPendingItem(item);
+          if (result?.ok && !result.wasCreatedHere) recoveredCount++;
         }
-        if (count > 0) {
-          setRecoveredCount(prev => prev + count);
-          const label = count === 1
+        if (recoveredCount > 0) {
+          setRecoveredCount(prev => prev + recoveredCount);
+          const label = recoveredCount === 1
             ? "Recuperamos 1 resposta da IA"
-            : `Recuperamos ${count} respostas da IA`;
+            : `Recuperamos ${recoveredCount} respostas da IA`;
           toast.show(label, "info");
         }
 
@@ -135,6 +182,8 @@ export function usePendingRecovery({ isAuthenticated, docsReady, conversationRea
     const responseId = response?.responseId || response?._responseId || response?.id || null;
     const status = normalizeResponseStatus(response?.status);
     if (!responseId) return;
+
+    sessionCreatedRef.current.add(responseId);
 
     if (status === "pending") {
       void processPendingItem({ id: responseId, status });
@@ -187,8 +236,8 @@ export function usePendingRecovery({ isAuthenticated, docsReady, conversationRea
 
           for (const item of pending) {
             if (cancelled) break;
-            const ok = await processPendingItem(item);
-            if (ok) count++;
+            const result = await processPendingItem(item);
+            if (result?.ok && !result.wasCreatedHere) count++;
           }
 
           if (count > 0 && !cancelled) {

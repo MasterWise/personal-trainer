@@ -117,6 +117,101 @@ function InviteSection({ theme, sectionStyle, secTitle }) {
   );
 }
 
+function WhitelistSection({ theme, sectionStyle, secTitle }) {
+  const c = theme.colors;
+  const [items, setItems] = useState([]);
+  const [email, setEmail] = useState("");
+  const [label, setLabel] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadWhitelist();
+  }, []);
+
+  async function loadWhitelist() {
+    try {
+      const data = await get("/admin/email-whitelist");
+      setItems(data.items || []);
+    } catch { /* ignore */ }
+  }
+
+  async function addEmail(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      await post("/admin/email-whitelist", { email, label });
+      setEmail("");
+      setLabel("");
+      await loadWhitelist();
+    } catch (err) {
+      setError(err?.message || "Erro ao autorizar e-mail");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function removeEmail(value) {
+    try {
+      await del(`/admin/email-whitelist/${encodeURIComponent(value)}`);
+      await loadWhitelist();
+    } catch { /* ignore */ }
+  }
+
+  function formatDate(iso) {
+    if (!iso) return "";
+    return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  }
+
+  return (
+    <div style={sectionStyle}>
+      {secTitle("📧", "E-mails autorizados (Google)")}
+      <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px", marginBottom: "12px", lineHeight: "1.5" }}>
+        E-mails desta lista podem entrar com Google sem precisar de link de convite.
+      </p>
+
+      <form onSubmit={addEmail} style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "14px" }}>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="exemplo@gmail.com"
+          required
+          style={{ padding: "10px 12px", borderRadius: "10px", border: `1px solid ${c.border}`, background: c.surface, fontFamily: theme.font, fontSize: "13px", color: c.text, outline: "none" }}
+        />
+        <input
+          type="text"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="Apelido (opcional, ex: Renata)"
+          style={{ padding: "10px 12px", borderRadius: "10px", border: `1px solid ${c.border}`, background: c.surface, fontFamily: theme.font, fontSize: "13px", color: c.text, outline: "none" }}
+        />
+        {error && <p style={{ color: c.danger || "#C05A3A", fontFamily: theme.font, fontSize: "12px", margin: 0 }}>{error}</p>}
+        <button type="submit" disabled={loading} style={{ padding: "10px", borderRadius: "10px", border: "none", background: c.primary, color: "#FFF", fontFamily: theme.font, fontWeight: "700", fontSize: "13px", cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
+          {loading ? "Salvando..." : "+ Autorizar e-mail"}
+        </button>
+      </form>
+
+      {items.length === 0 ? (
+        <p style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "12px", textAlign: "center", padding: "8px 0" }}>Nenhum e-mail autorizado ainda.</p>
+      ) : items.map((it) => (
+        <div key={it.email} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${c.border}` }}>
+          <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
+            <span style={{ fontFamily: theme.font, color: c.text, fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {it.label ? `${it.label} · ` : ""}{it.email}
+            </span>
+            <span style={{ fontFamily: theme.font, color: c.textMuted, fontSize: "11px" }}>
+              {it.consumedBy ? `usado em ${formatDate(it.consumedAt)}` : `pendente (desde ${formatDate(it.addedAt)})`}
+            </span>
+          </div>
+          <button onClick={() => removeEmail(it.email)} style={{ background: "none", border: "none", color: c.danger || "#C05A3A", fontFamily: theme.font, fontSize: "11px", fontWeight: "600", cursor: "pointer", flexShrink: 0 }}>remover</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, onSaveMicro }) {
   const { theme } = useTheme();
   const toast = useToast();
@@ -378,6 +473,7 @@ export default function PerfilTab({ perfil, onSave, macro, micro, onSaveMacro, o
 
         {/* Usuários (admin only) */}
         {isAdmin && <InviteSection theme={theme} sectionStyle={sectionStyle} secTitle={secTitle} />}
+        {isAdmin && <WhitelistSection theme={theme} sectionStyle={sectionStyle} secTitle={secTitle} />}
 
         {/* Gerenciar dados */}
         <div style={sectionStyle}>

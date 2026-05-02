@@ -92,7 +92,7 @@ export function AuthProvider({ children }) {
         unsubscribe = await onFirebaseAuthChanged(async (firebaseUser) => {
           if (cancelled) return;
           if (!firebaseUser) {
-            await loadLocalSession({ allowSetupScreen: false });
+            await loadLocalSession();
             return;
           }
 
@@ -227,10 +227,37 @@ export function AuthProvider({ children }) {
   const loginWithGoogle = useCallback(async () => {
     const firebaseUser = await loginWithFirebaseGoogle();
     setStoredAuthToken(null);
-    const backendUser = await fetchMe();
+    let backendUser = await fetchMe();
+    if (!backendUser) {
+      try {
+        const data = await post("/auth/auto-register", {});
+        backendUser = data?.user || null;
+      } catch { /* whitelist miss → fall through to error */ }
+    }
     if (!backendUser) {
       await logoutFirebase().catch(() => {});
-      throw new Error("Perfil do app nao encontrado. Use um convite ou fale com um administrador.");
+      throw new Error("Perfil do app nao encontrado. Peca um convite ou um administrador para autorizar seu e-mail.");
+    }
+    const nextUser = mapFirebaseUser(firebaseUser, backendUser);
+    setUser(nextUser);
+    setNeedsSetup(false);
+    return nextUser;
+  }, [fetchMe]);
+
+  const registerWithGoogle = useCallback(async (invite) => {
+    if (!invite) throw new Error("Codigo de convite obrigatorio");
+    const firebaseUser = await loginWithFirebaseGoogle();
+    setStoredAuthToken(null);
+    let backendUser = null;
+    try {
+      await post("/auth/register", { invite });
+      backendUser = await fetchMe();
+    } catch (error) {
+      backendUser = await fetchMe();
+      if (!backendUser) {
+        await logoutFirebase().catch(() => {});
+        throw new Error(error?.message || "Falha ao registrar com Google");
+      }
     }
     const nextUser = mapFirebaseUser(firebaseUser, backendUser);
     setUser(nextUser);
@@ -257,6 +284,7 @@ export function AuthProvider({ children }) {
       isFirebaseEnabled,
       login,
       loginWithGoogle,
+      registerWithGoogle,
       signup,
       register,
       logout,

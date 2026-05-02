@@ -18,7 +18,7 @@ export function buildResponseSchemaForInteraction(interactionMeta = {}) {
   const updateProperties = {
     file: {
       type: "string",
-      enum: ["micro", "memoria", "historico", "plano", "progresso", "medidas"],
+      enum: ["micro", "memoria", "historico", "plano", "progresso", "medidas", "perfil"],
     },
     action: {
       type: "string",
@@ -32,6 +32,7 @@ export function buildResponseSchemaForInteraction(interactionMeta = {}) {
         "delete_item",
         "append_micro",
         "patch_micro",
+        "patch_perfil",
         "patch_coach_note",
         "append_coach_note",
       ],

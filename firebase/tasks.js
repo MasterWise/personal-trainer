@@ -24,7 +24,7 @@ function requireTaskEnv() {
 }
 
 export async function enqueueClaudeTask({ uid, responseId }) {
-  if (process.env.FIREBASE_TASKS_EMULATE_INLINE === "true") {
+  if (process.env.TASKS_EMULATE_INLINE === "true" || process.env.FIREBASE_TASKS_EMULATE_INLINE === "true") {
     queueMicrotask(() => {
       processClaudeTask({ uid, responseId }).catch((error) => {
         console.error("[Cloud Tasks Inline]", error);

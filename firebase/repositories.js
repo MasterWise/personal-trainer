@@ -53,6 +53,18 @@ function invitesRef() {
   return getFirestore().collection("invites");
 }
 
+function emailWhitelistRef() {
+  return getFirestore().collection("emailWhitelist");
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 function normalizeConvoType(value) {
   return value === "plan" ? "plan" : "general";
 }
@@ -533,6 +545,50 @@ export const firebaseConversationsRepository = {
       }
       tx.set(currentConversationStateRef(uid), { conversationId: null, updatedAt }, { merge: true });
     });
+  },
+};
+
+export const firebaseEmailWhitelistRepository = {
+  async add({ email, addedBy, label }) {
+    const normalized = normalizeEmail(email);
+    if (!isValidEmail(normalized)) {
+      throw Object.assign(new Error("E-mail invalido"), { statusCode: 400 });
+    }
+    const addedAt = nowIso();
+    await emailWhitelistRef().doc(normalized).set({
+      email: normalized,
+      label: typeof label === "string" && label.trim() ? label.trim() : null,
+      addedBy,
+      addedAt,
+      consumedBy: null,
+      consumedAt: null,
+    }, { merge: true });
+    return { email: normalized, addedAt };
+  },
+
+  async get(email) {
+    const snap = await emailWhitelistRef().doc(normalizeEmail(email)).get();
+    return snap.exists ? snap.data() : null;
+  },
+
+  async remove(email) {
+    const ref = emailWhitelistRef().doc(normalizeEmail(email));
+    const snap = await ref.get();
+    if (!snap.exists) return false;
+    await ref.delete();
+    return true;
+  },
+
+  async list() {
+    const snap = await emailWhitelistRef().orderBy("addedAt", "desc").limit(100).get();
+    return snap.docs.map((doc) => doc.data());
+  },
+
+  async markConsumed(email, uid) {
+    await emailWhitelistRef().doc(normalizeEmail(email)).set({
+      consumedBy: uid,
+      consumedAt: nowIso(),
+    }, { merge: true });
   },
 };
 

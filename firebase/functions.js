@@ -3,9 +3,12 @@ import { onRequest } from "firebase-functions/v2/https";
 import { createApp } from "../app.js";
 import { handleClaudeWorker } from "./worker.js";
 
-const region = process.env.FIREBASE_FUNCTIONS_REGION
-  || process.env.FUNCTIONS_REGION
+const region = process.env.FUNCTIONS_REGION
+  || process.env.FIREBASE_FUNCTIONS_REGION
   || "southamerica-east1";
+const serviceAccount = process.env.FUNCTIONS_SERVICE_ACCOUNT
+  || process.env.FIREBASE_FUNCTIONS_SERVICE_ACCOUNT
+  || undefined;
 let appPromise;
 
 function getExpressApp() {
@@ -14,7 +17,12 @@ function getExpressApp() {
   return appPromise;
 }
 
-export const api = onRequest({ region, timeoutSeconds: 60, memory: "512MiB" }, async (req, res) => {
+export const api = onRequest({
+  region,
+  timeoutSeconds: 60,
+  memory: "512MiB",
+  serviceAccount,
+}, async (req, res) => {
   const app = await getExpressApp();
   return app(req, res);
 });
@@ -24,4 +32,5 @@ export const claudeWorker = onRequest({
   timeoutSeconds: 540,
   memory: "1GiB",
   concurrency: 5,
+  serviceAccount,
 }, handleClaudeWorker);

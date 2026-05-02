@@ -10,82 +10,13 @@ import {
 import { hashString } from "../../utils/stringHash.js";
 import { lockPlanUpdateToDate } from "../../utils/planUpdateGuard.js";
 import { enforcePlanUserCheckedPermission } from "../../utils/planPermissionGuard.js";
+import { enforcePerfilPermission } from "../../utils/perfilPermissionGuard.js";
+import { buildPermissionGroups } from "../../utils/permissionGroups.js";
 import ChatMsg from "./ChatMsg.jsx";
 import PermCard from "./PermCard.jsx";
 
 import { post } from "../../services/api.js";
 import { useDocs } from "../../contexts/DocsContext.jsx";
-
-function normalizePromptCard(prompt, fallback = {}) {
-  const detailsRaw = Array.isArray(prompt?.details) ? prompt.details : (Array.isArray(fallback.details) ? fallback.details : []);
-  const details = detailsRaw
-    .filter((line) => typeof line === "string")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  return {
-    title: String(prompt?.title || fallback.title || "Confirmação necessária"),
-    message: String(prompt?.message || fallback.message || "Posso aplicar esta alteração?"),
-    approveLabel: String(prompt?.approveLabel || fallback.approveLabel || "✓ Sim, aplicar"),
-    rejectLabel: String(prompt?.rejectLabel || fallback.rejectLabel || "Não"),
-    details,
-    approvedFeedback: String(prompt?.approvedFeedback || fallback.approvedFeedback || "✓ Alterações aplicadas."),
-    rejectedFeedback: String(prompt?.rejectedFeedback || fallback.rejectedFeedback || "Ok, mantive como estava."),
-  };
-}
-
-function buildDefaultPromptFromEntries(entries) {
-  const lockedEntries = entries.filter((entry) => entry?.info?.reason === "locked_user_checked_item");
-  if (lockedEntries.length > 0) {
-    const details = lockedEntries
-      .map((entry) => entry?.info?.detail)
-      .filter((line) => typeof line === "string" && line.trim());
-
-    return normalizePromptCard(
-      entries[0]?.update?.permissionPrompt,
-      {
-        title: "Alterar itens já concluídos por você?",
-        message: "Esses itens estão marcados como realizados por você. Confirmar alteração/remoção?",
-        approveLabel: "Sim, alterar itens",
-        rejectLabel: "Não, manter",
-        details,
-        approvedFeedback: "✓ Alterações nos itens concluídos foram aplicadas.",
-        rejectedFeedback: "Perfeito, mantive os itens concluídos sem alterações.",
-      }
-    );
-  }
-
-  const firstMessage = String(entries[0]?.update?.permissionMessage || "Posso aplicar esta alteração?");
-  return normalizePromptCard(
-    entries[0]?.update?.permissionPrompt,
-    {
-      message: firstMessage,
-      details: [],
-    }
-  );
-}
-
-function buildPermissionGroups(permissionEntries) {
-  if (!Array.isArray(permissionEntries) || permissionEntries.length === 0) return [];
-
-  const groups = new Map();
-  permissionEntries.forEach((entry, index) => {
-    const explicitGroup = typeof entry?.update?.permissionGroupId === "string" ? entry.update.permissionGroupId.trim() : "";
-    const fallbackByReason = entry?.info?.reason === "locked_user_checked_item"
-      ? `locked_user_checked_item:${entry?.info?.targetDate || "sem_data"}`
-      : `single:${index}`;
-    const groupKey = explicitGroup || fallbackByReason;
-
-    if (!groups.has(groupKey)) groups.set(groupKey, []);
-    groups.get(groupKey).push(entry);
-  });
-
-  return Array.from(groups.values()).map((entries, index) => ({
-    id: `${Date.now()}-${Math.random()}-${index}`,
-    updates: entries.map((entry) => entry.update),
-    prompt: buildDefaultPromptFromEntries(entries),
-  }));
-}
 
 export default function ChatTab({
   docs,
@@ -106,13 +37,15 @@ export default function ChatTab({
   cliSessionId: cliSessionIdProp = null,
   hasInFlight = false,
   onAsyncResponseQueued = null,
+  pendingPerms = [],
+  onAddPermissionGroups = null,
+  onResolvePermission = null,
 }) {
   const { applyUpdateBatch } = useDocs();
   const { theme } = useTheme();
   const c = theme.colors;
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [pendingPerms, setPPerms] = useState([]);
   // Use the CLI session ID from App.jsx (unified namespace); fall back to local UUID
   const [localSessionId] = useState(() => crypto.randomUUID());
   const sessionId = cliSessionIdProp || localSessionId;
@@ -184,7 +117,12 @@ export default function ChatTab({
           return locked;
         })
         .filter(Boolean)
-        .map((u) => enforcePlanUserCheckedPermission(u, docs.plano));
+        .map((u) => enforcePlanUserCheckedPermission(u, docs.plano))
+        .map((entry) => {
+          if (entry.requiresPermission) return entry;
+          const perfilCheck = enforcePerfilPermission(entry.update, docs.perfil);
+          return perfilCheck.requiresPermission ? perfilCheck : entry;
+        });
 
       const direct = preparedEntries
         .filter((entry) => !entry.update?.requiresPermission)
@@ -194,8 +132,8 @@ export default function ChatTab({
       // Apply direct updates and capture before/after revisions
       const appliedUpdates = direct.length > 0 ? await applyUpdateBatch(direct) : [];
 
-      if (perms.length > 0) {
-        setPPerms((prev) => [...prev, ...buildPermissionGroups(perms)]);
+      if (perms.length > 0 && onAddPermissionGroups) {
+        onAddPermissionGroups(buildPermissionGroups(perms));
       }
 
       const aiMsg = { role: "assistant", content: parsed.reply || "...", appliedUpdates, _responseId: responseId };
@@ -218,16 +156,8 @@ export default function ChatTab({
   }
 
   async function handlePerm(permId, approved) {
-    const perm = pendingPerms.find(p => p.id === permId);
-    if (!perm) return;
-    setPPerms(prev => prev.filter(p => p.id !== permId));
-    if (approved) {
-      const appliedUpdates = await applyUpdateBatch((perm.updates || []).map((update) => ({ ...update, permissionApproved: true })));
-      const feedback = perm.prompt?.approvedFeedback || "✓ Alterações aplicadas.";
-      setMessages(prev => [...prev, { role: "assistant", content: feedback, appliedUpdates }]);
-    } else {
-      const feedback = perm.prompt?.rejectedFeedback || "Ok, mantive como estava.";
-      setMessages(prev => [...prev, { role: "assistant", content: feedback }]);
+    if (onResolvePermission) {
+      await onResolvePermission(permId, approved);
     }
   }
 

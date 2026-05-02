@@ -48,5 +48,10 @@
     "hosting": {
       "port": 5000
     }
+  },
+  "auth": {
+    "providers": {
+      "emailPassword": true
+    }
   }
 }

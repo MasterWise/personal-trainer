@@ -22,6 +22,7 @@ const FILE_TO_STATE = {
   calorias: "cal",
   treinos: "treinos",
   medidas: "medidas",
+  perfil: "perfil",
 };
 
 const PROGRESSO_EMOJIS = {
@@ -124,18 +125,34 @@ function diffDocKeys(prevDocs, nextDocs) {
   return DOC_KEYS.filter((key) => prevDocs[key] !== nextDocs[key]);
 }
 
+// Accepts content as object OR string-with-JSON-inside, returns the object or null.
+// Needed because the gateway's Gemini schema sanitizer forces `content` to string,
+// causing the AI to serialize structured payloads (e.g. {search,replace}) as JSON strings.
+function coerceObjectContent(content) {
+  if (content && typeof content === "object") return content;
+  if (typeof content === "string") {
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch { /* not JSON, treat as plain text */ }
+  }
+  return null;
+}
+
 function buildPatchMicro(prevValue, content) {
-  if (content && typeof content === "object") {
-    const search = typeof content.search === "string" ? content.search : content.find;
-    const replacement = typeof content.replace === "string" ? content.replace : content.value;
+  const obj = coerceObjectContent(content);
+  if (obj) {
+    const search = typeof obj.search === "string" ? obj.search : obj.find;
+    const replacement = typeof obj.replace === "string" ? obj.replace : obj.value;
     if (typeof search === "string" && typeof replacement === "string" && search) {
       return prevValue.includes(search) ? prevValue.replace(search, replacement) : `${prevValue}\n${replacement}`.trim();
     }
-    if (typeof content.text === "string" && content.text.trim()) {
-      return content.text.trim();
+    if (typeof obj.text === "string" && obj.text.trim()) {
+      return obj.text.trim();
     }
   }
 
+  // Fallback: treat content as plain text to append (legacy behavior).
   const text = typeof content === "string" ? content.trim() : JSON.stringify(content);
   if (!text) return prevValue;
   return text.startsWith("#") ? text : `${prevValue}\n${text}`.trim();
@@ -256,6 +273,19 @@ function applySingleUpdateToDocs(docs, update, batchId) {
       const dict = parsePlanoDict(before, targetDate);
       dict[targetDate] = incomingObj;
       newVal = JSON.stringify(dict);
+    } else if (stateKey === "perfil") {
+      // Perfil is structured JSON — coerce string-encoded JSON back to object so the
+      // Perfil tab (which JSON.parses the field) gets a valid object instead of a literal.
+      const parsedObj = coerceObjectContent(update.content);
+      if (parsedObj) {
+        const fields = parsedObj.fields && typeof parsedObj.fields === "object" && !Array.isArray(parsedObj.fields)
+          ? parsedObj.fields
+          : parsedObj;
+        newVal = JSON.stringify(fields, null, 2);
+      } else {
+        console.error("[DocsContext] replace_all em 'perfil' recebeu content nao-JSON; preservando como string:", { file: update.file });
+        newVal = typeof update.content === "string" ? update.content : JSON.stringify(update.content);
+      }
     } else {
       newVal = typeof update.content === "object" ? JSON.stringify(update.content) : String(update.content || "");
     }
@@ -316,6 +346,21 @@ function applySingleUpdateToDocs(docs, update, batchId) {
     newVal = `${before}${before ? "\n" : ""}${val}`.trim();
   } else if (update.action === "patch_micro" && stateKey === "micro") {
     newVal = buildPatchMicro(before, update.content);
+  } else if (update.action === "patch_perfil" && stateKey === "perfil") {
+    const payload = coerceObjectContent(update.content);
+    const fields = payload?.fields && typeof payload.fields === "object" && !Array.isArray(payload.fields)
+      ? payload.fields
+      : payload;
+    if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
+      console.error("[DocsContext] patch_perfil sem fields validos:", { content: update.content });
+      return { nextDocs: docs, revision: null };
+    }
+    const prev = parseJson(before, {}) || {};
+    const merged = { ...prev };
+    for (const [k, v] of Object.entries(fields)) {
+      merged[k] = v;
+    }
+    newVal = JSON.stringify(merged, null, 2);
   } else if (update.action === "update_calorias_day" && stateKey === "cal") {
     const dayData = typeof update.content === "string" ? parseJson(update.content, null) : update.content;
     if (!dayData || typeof dayData !== "object") {

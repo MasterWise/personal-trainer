@@ -1,14 +1,15 @@
 import { Router } from "express";
 import { getAuth } from "../firebase/admin.js";
 import { firebaseAdminOnly, firebaseAuthMiddleware } from "../middleware/firebaseAuth.js";
-import { ensureUserProfile, firebaseInvitesRepository, firebaseUsersRepository } from "../firebase/repositories.js";
+import { ensureUserProfile, firebaseEmailWhitelistRepository, firebaseInvitesRepository, firebaseUsersRepository } from "../firebase/repositories.js";
 
 function isExpired(invite) {
   return new Date(invite.expiresAt) < new Date();
 }
 
 function getBootstrapSeed() {
-  return process.env.FIREBASE_BOOTSTRAP_SEED === "renata" ? "renata" : "empty";
+  const seed = process.env.BOOTSTRAP_SEED || process.env.FIREBASE_BOOTSTRAP_SEED;
+  return seed === "renata" ? "renata" : "empty";
 }
 
 function validateBootstrapSecret(secret) {
@@ -78,6 +79,30 @@ export default function firebaseAuthRoutes() {
     }
   });
 
+  router.post("/api/auth/auto-register", firebaseAuthMiddleware, async (req, res) => {
+    try {
+      const existing = await firebaseUsersRepository.me(req.user);
+      if (existing) return res.json({ user: existing, authProvider: "firebase" });
+
+      const email = req.user.email;
+      if (!email) {
+        return res.status(403).json({ error: "Token sem e-mail; nao e possivel auto-registrar" });
+      }
+
+      const whitelistEntry = await firebaseEmailWhitelistRepository.get(email);
+      if (!whitelistEntry) {
+        return res.status(403).json({ error: "E-mail nao autorizado pelo administrador" });
+      }
+
+      const user = await ensureUserProfile(req.user, { seed: "empty" });
+      await firebaseEmailWhitelistRepository.markConsumed(email, req.user.uid);
+      res.json({ user, authProvider: "firebase" });
+    } catch (error) {
+      console.error("[Firebase Auth][Auto-Register]", error);
+      res.status(500).json({ error: "Erro ao auto-registrar usuario" });
+    }
+  });
+
   router.post("/api/auth/register", firebaseAuthMiddleware, async (req, res) => {
     try {
       const { invite } = req.body || {};
@@ -122,6 +147,40 @@ export default function firebaseAuthRoutes() {
     } catch (error) {
       console.error("[Firebase Admin][List Invites]", error);
       res.status(500).json({ error: "Erro ao listar convites" });
+    }
+  });
+
+  router.get("/api/admin/email-whitelist", firebaseAuthMiddleware, firebaseAdminOnly, async (req, res) => {
+    try {
+      res.json({ items: await firebaseEmailWhitelistRepository.list() });
+    } catch (error) {
+      console.error("[Firebase Admin][List Whitelist]", error);
+      res.status(500).json({ error: "Erro ao listar e-mails autorizados" });
+    }
+  });
+
+  router.post("/api/admin/email-whitelist", firebaseAuthMiddleware, firebaseAdminOnly, async (req, res) => {
+    try {
+      const { email, label } = req.body || {};
+      const created = await firebaseEmailWhitelistRepository.add({ email, label, addedBy: req.user.uid });
+      res.json(created);
+    } catch (error) {
+      if (error?.statusCode) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error("[Firebase Admin][Add Whitelist]", error);
+      res.status(500).json({ error: "Erro ao autorizar e-mail" });
+    }
+  });
+
+  router.delete("/api/admin/email-whitelist/:email", firebaseAuthMiddleware, firebaseAdminOnly, async (req, res) => {
+    try {
+      const removed = await firebaseEmailWhitelistRepository.remove(req.params.email);
+      if (!removed) return res.status(404).json({ error: "E-mail nao encontrado" });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[Firebase Admin][Remove Whitelist]", error);
+      res.status(500).json({ error: "Erro ao remover e-mail" });
     }
   });
 

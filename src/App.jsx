@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "./contexts/AuthContext.jsx";
 import { useDocs } from "./contexts/DocsContext.jsx";
 import { useTheme } from "./contexts/ThemeContext.jsx";
@@ -12,6 +12,9 @@ import {
   parseClaudeStructuredResponse,
 } from "./services/claudeResponseParser.js";
 import { lockPlanUpdateToDate } from "./utils/planUpdateGuard.js";
+import { enforcePlanUserCheckedPermission } from "./utils/planPermissionGuard.js";
+import { enforcePerfilPermission } from "./utils/perfilPermissionGuard.js";
+import { buildPermissionGroups } from "./utils/permissionGroups.js";
 import Header from "./components/layout/Header.jsx";
 import TabBar from "./components/layout/TabBar.jsx";
 import ChatTab from "./components/chat/ChatTab.jsx";
@@ -22,6 +25,7 @@ import ProgressoView from "./views/ProgressoView.jsx";
 import CadernoView from "./views/CadernoView.jsx";
 import LogsView from "./views/LogsView.jsx";
 import PerfilTab from "./components/perfil/PerfilTab.jsx";
+import OnboardingScreen from "./components/onboarding/OnboardingScreen.jsx";
 import { deriveHealthViewModel } from "./utils/healthModel.js";
 import { diffPerfil, buildMedidaFromDiff, buildProgressoFromDiff } from "./utils/perfilDiff.js";
 import { PROGRESSO_EMOJIS } from "./data/constants.js";
@@ -128,7 +132,7 @@ function LoginForm() {
 }
 
 function RegisterForm() {
-  const { register } = useAuth();
+  const { register, registerWithGoogle, isFirebaseEnabled } = useAuth();
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -191,6 +195,19 @@ function RegisterForm() {
     }
   };
 
+  const handleGoogleRegister = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      await registerWithGoogle(inviteCode);
+      window.history.replaceState({}, "", window.location.pathname);
+    } catch (err) {
+      setError(err.message || "Falha no cadastro com Google");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", padding: "24px", background: "var(--pt-color-bg)" }}>
       <div style={{ width: "64px", height: "64px", borderRadius: "20px", background: "linear-gradient(135deg, var(--pt-color-primary-light), var(--pt-color-primary))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "28px", marginBottom: "20px", boxShadow: "0 6px 24px rgba(184,120,80,0.3)" }}>🌿</div>
@@ -203,6 +220,11 @@ function RegisterForm() {
         <button type="submit" disabled={loading} style={{ padding: "12px", borderRadius: "12px", border: "none", background: "var(--pt-color-primary)", color: "#FFF", fontFamily: "var(--pt-font-body)", fontWeight: 700, fontSize: "15px", cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
           {loading ? "Criando..." : "Criar conta"}
         </button>
+        {isFirebaseEnabled && (
+          <button type="button" onClick={handleGoogleRegister} disabled={loading} style={{ padding: "12px", borderRadius: "12px", border: "1px solid var(--pt-color-border)", background: "var(--pt-color-surface)", color: "var(--pt-color-text)", fontFamily: "var(--pt-font-body)", fontWeight: 700, fontSize: "15px", cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
+            Continuar com Google
+          </button>
+        )}
       </form>
       <button onClick={() => setShowLogin(true)} style={{ background: "none", border: "none", color: "var(--pt-color-primary)", fontFamily: "var(--pt-font-body)", fontSize: "13px", fontWeight: "600", cursor: "pointer", marginTop: "16px" }}>
         Já tem conta? Entrar
@@ -275,6 +297,14 @@ function getChatContextBadge(meta, readOnly, generating) {
   return `Plano ${meta.planDate}${versionLabel}`;
 }
 
+function hasMinimalProfile(perfilStr) {
+  try {
+    return !!JSON.parse(perfilStr || "{}").nome?.trim();
+  } catch {
+    return false;
+  }
+}
+
 function hasPlanoForDate(planoStr, dateStr) {
   try {
     const parsed = JSON.parse(planoStr || "{}");
@@ -294,7 +324,7 @@ function hasPlanoForDate(planoStr, dateStr) {
    APP
 ══════════════════════════════════════════════════════════════════════════ */
 export default function App() {
-  const { isAuthenticated, isLoading, needsSetup } = useAuth();
+  const { user, isAuthenticated, isLoading, needsSetup } = useAuth();
   const {
     docs,
     docsReady,
@@ -320,6 +350,7 @@ export default function App() {
   const [conversationReady, setConversationReady] = useState(false);
   const [removingPlan, setRemovingPlan] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingPerms, setPendingPerms] = useState([]);
   const prevMsgsLen = useRef(0);
   // Stable session ID for CLI bridges — independent of currentConvoId (which starts null
   // for new conversations and would break isResume detection on turn 2).
@@ -488,6 +519,12 @@ export default function App() {
     try { nomePerfil = JSON.parse(docs.perfil || "{}").nome || "Renata"; } catch { /* ignore */ }
 
     const planContext = buildRelevantPlanContext(docs, contextOpts);
+    // Allow caller to override conversationId — needed when a brand-new conversation
+    // was just created (e.g. plan generation) and React's setCurrentConvoId hasn't
+    // committed yet. Without this, the request goes out tagged with the old/null id
+    // and the polled response lands in the wrong conversation, so the user never
+    // sees the AI message in the new plan thread.
+    const effectiveConversationId = options.conversationId ?? currentConvoId;
     const data = await sendMessage(
       apiMsgs,
       buildSystemInstructions(nomePerfil, instructionPlanDate),
@@ -497,7 +534,7 @@ export default function App() {
         planContext,
         autoAction: options.autoAction || null,
         _sessionId: cliSessionIdRef.current,
-        conversationId: currentConvoId,
+        conversationId: effectiveConversationId,
       }
     );
     const asyncResponse = getAsyncClaudeResponse(data);
@@ -512,14 +549,27 @@ export default function App() {
     let appliedUpdates = [];
     const planDateLock = contextOpts.conversationType === "plan" ? (contextOpts.planDate || planoDate) : null;
     const allowPlanReplaceAll = options.autoAction === "generate_plan" || options.autoAction === "new_plan";
-    const guardedUpdates = [];
-    for (const u of (parsed.updates || []).filter(u => !u.requiresPermission)) {
-      const guardedUpdate = lockPlanUpdateToDate(u, planDateLock, docs.plano, { allowPlanReplaceAll });
-      if (guardedUpdate) guardedUpdates.push(guardedUpdate);
-    }
 
-    if (guardedUpdates.length > 0) {
-      appliedUpdates = await applyUpdateBatch(guardedUpdates);
+    const preparedEntries = (parsed.updates || [])
+      .map((u) => lockPlanUpdateToDate(u, planDateLock, docs.plano, { allowPlanReplaceAll }))
+      .filter(Boolean)
+      .map((u) => enforcePlanUserCheckedPermission(u, docs.plano))
+      .map((entry) => {
+        if (entry.requiresPermission) return entry;
+        const perfilCheck = enforcePerfilPermission(entry.update, docs.perfil);
+        return perfilCheck.requiresPermission ? perfilCheck : entry;
+      });
+
+    const directUpdates = preparedEntries
+      .filter((entry) => !entry.update?.requiresPermission)
+      .map((entry) => entry.update);
+    const permEntries = preparedEntries.filter((entry) => entry.update?.requiresPermission);
+
+    if (directUpdates.length > 0) {
+      appliedUpdates = await applyUpdateBatch(directUpdates);
+    }
+    if (permEntries.length > 0) {
+      handleAddPermissionGroups(buildPermissionGroups(permEntries));
     }
 
     // Acknowledge the pending response so it's not replayed on reconnect
@@ -650,6 +700,7 @@ export default function App() {
             action: resolvedAction === "new_plan" ? "new_plan" : "generate",
             planDate: planoDate,
           }),
+          conversationId: startRes.conversation?.id,
         });
         if (result?.aiMsg) setMessages(prev => [...prev, result.aiMsg]);
       } catch (e) {
@@ -931,6 +982,35 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [docsReady, isAuthenticated, docs.plano, docs.medidas, docs.progresso]);
 
+  const handleAddPermissionGroups = useCallback((groups) => {
+    if (!Array.isArray(groups) || groups.length === 0) return;
+    setPendingPerms((prev) => [...prev, ...groups]);
+  }, []);
+
+  const handleResolvePermission = useCallback(async (permId, approved) => {
+    let resolved = null;
+    setPendingPerms((prev) => {
+      resolved = prev.find((p) => p.id === permId) || null;
+      return prev.filter((p) => p.id !== permId);
+    });
+    if (!resolved) return;
+    if (approved) {
+      try {
+        const appliedUpdates = await applyUpdateBatch(
+          (resolved.updates || []).map((update) => ({ ...update, permissionApproved: true }))
+        );
+        const feedback = resolved.prompt?.approvedFeedback || "✓ Alterações aplicadas.";
+        setMessages((prev) => [...prev, { role: "assistant", content: feedback, appliedUpdates }]);
+      } catch (e) {
+        console.error("[handleResolvePermission] approve failed:", e);
+        setMessages((prev) => [...prev, { role: "assistant", content: "Falha ao aplicar a alteração. Tente novamente." }]);
+      }
+    } else {
+      const feedback = resolved.prompt?.rejectedFeedback || "Ok, mantive como estava.";
+      setMessages((prev) => [...prev, { role: "assistant", content: feedback }]);
+    }
+  }, [applyUpdateBatch]);
+
   // Response Inbox: recover missed AI responses on reconnect
   // Must be BEFORE conditional returns to respect Rules of Hooks
   const { hasInFlight, trackPendingResponse } = usePendingRecovery({
@@ -938,7 +1018,9 @@ export default function App() {
     docsReady,
     conversationReady,
     currentConvoId,
+    currentConvoMeta,
     setMessages,
+    onPermissionGroups: handleAddPermissionGroups,
   });
 
   if (isLoading) return <LoadingScreen />;
@@ -947,6 +1029,9 @@ export default function App() {
   const hasInviteParam = new URLSearchParams(window.location.search).has("invite");
   if (!isAuthenticated && hasInviteParam) return <RegisterForm />;
   if (!isAuthenticated) return <LoginForm />;
+  if (docsReady && !hasMinimalProfile(docs.perfil)) {
+    return <OnboardingScreen onSave={savePerfil} initialName={user?.name || user?.email} />;
+  }
 
   const healthViewModel = deriveHealthViewModel({
     planoStr: docs.plano,
@@ -979,6 +1064,9 @@ export default function App() {
             cliSessionId={cliSessionIdRef.current}
             hasInFlight={hasInFlight}
             onAsyncResponseQueued={trackPendingResponse}
+            pendingPerms={pendingPerms}
+            onAddPermissionGroups={handleAddPermissionGroups}
+            onResolvePermission={handleResolvePermission}
           />
         </div>
         {activeTab === "plano" && (
