@@ -257,7 +257,7 @@ export function usePendingRecovery({
 
     recoverPending();
     return () => { cancelled = true; };
-  }, [isAuthenticated, docsReady, conversationReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, docsReady, conversationReady]);
 
   return { recovering, recoveredCount, hasInFlight, trackPendingResponse };
 }
