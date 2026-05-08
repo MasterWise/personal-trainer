@@ -190,7 +190,36 @@ export default function ChatTab({
   }
 
   const quickActions = ["Como foi minha semana?", "Lanche da tarde ideal 🍎", "Estou na TPM 😩", "O que jantar hoje?"];
+  const firstSessionActions = [
+    "Meu objetivo é perder peso 🎯",
+    "Quero ganhar massa muscular 💪",
+    "Conta como é minha rotina 📅",
+    "Minhas preferências alimentares 🥗",
+    "Estou com pouca disposição 😴",
+    "Não sei por onde começar 🤔",
+  ];
   const showWelcome = docsReady && messages.length === 0 && !generating && !isPlanConversation;
+
+  const todayKey = (planoDate || new Date().toLocaleDateString("pt-BR"));
+  const hasPlanToday = (() => {
+    try {
+      const dict = JSON.parse(docs?.plano || "{}");
+      return !!dict?.[todayKey];
+    } catch { return false; }
+  })();
+  const isFirstSession = (() => {
+    try {
+      const perfilObj = JSON.parse(docs?.perfil || "{}");
+      const meaningfulKeys = Object.keys(perfilObj).filter(k => {
+        const v = perfilObj[k];
+        if (v == null || v === "") return false;
+        if (Array.isArray(v) && v.length === 0) return false;
+        if (typeof v === "object" && Object.keys(v).length === 0) return false;
+        return true;
+      });
+      return meaningfulKeys.length <= 1;
+    } catch { return true; }
+  })();
 
   // Auto-resize textarea up to 3 visible lines, then scroll
   const autoResizeTextarea = useCallback((el) => {
@@ -234,19 +263,51 @@ export default function ChatTab({
         {showWelcome && (
           <div className="pt-chat__welcome">
             <div className="pt-chat__welcome-avatar">🌿</div>
-            <h3 className="pt-chat__welcome-heading">Olá!</h3>
-            <p className="pt-chat__welcome-subtitle">Estou aqui para te acompanhar. Como você está hoje?</p>
-            <button onClick={onGeneratePlan} disabled={generating}
-              style={{ marginTop: "22px", width: "100%", maxWidth: "310px", padding: "14px 20px", background: generating ? `${c.primaryLight}80` : `linear-gradient(135deg,${c.primaryLight},${c.primary})`, color: "#FFF", border: "none", borderRadius: "16px", fontFamily: theme.font, fontSize: "15px", fontWeight: "700", cursor: generating ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", boxShadow: `0 4px 16px ${c.primary}40` }}>
-              {generating ? "🌿 Gerando plano..." : "✨ Gerar plano do dia"}
-            </button>
-            <div className="pt-chat__quick-actions" style={{ marginTop: "12px", width: "100%", maxWidth: "310px" }}>
-              {quickActions.map(s => (
-                <button key={s} className="pt-chat__quick-action" onClick={() => { setInput(s); taRef.current?.focus(); }}>
-                  {s}
+            {isFirstSession ? (
+              <>
+                <h3 className="pt-chat__welcome-heading">Prazer em te conhecer!</h3>
+                <p className="pt-chat__welcome-subtitle">Antes de criar um plano, quero entender você melhor. Conta sobre seus objetivos, rotina e preferências.</p>
+                <div className="pt-chat__quick-actions" style={{ marginTop: "22px", width: "100%", maxWidth: "310px" }}>
+                  {firstSessionActions.map(s => (
+                    <button key={s} className="pt-chat__quick-action" onClick={() => { setInput(s); taRef.current?.focus(); }}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : hasPlanToday ? (
+              <>
+                <h3 className="pt-chat__welcome-heading">Olá!</h3>
+                <p className="pt-chat__welcome-subtitle">Estou aqui para te acompanhar. Como você está hoje?</p>
+                <button onClick={() => setTab && setTab("plano")}
+                  style={{ marginTop: "22px", width: "100%", maxWidth: "310px", padding: "14px 20px", background: `linear-gradient(135deg,${c.primaryLight},${c.primary})`, color: "#FFF", border: "none", borderRadius: "16px", fontFamily: theme.font, fontSize: "15px", fontWeight: "700", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", boxShadow: `0 4px 16px ${c.primary}40` }}>
+                  📋 Ver plano de hoje
                 </button>
-              ))}
-            </div>
+                <div className="pt-chat__quick-actions" style={{ marginTop: "12px", width: "100%", maxWidth: "310px" }}>
+                  {quickActions.map(s => (
+                    <button key={s} className="pt-chat__quick-action" onClick={() => { setInput(s); taRef.current?.focus(); }}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="pt-chat__welcome-heading">Olá!</h3>
+                <p className="pt-chat__welcome-subtitle">Estou aqui para te acompanhar. Como você está hoje?</p>
+                <button onClick={onGeneratePlan} disabled={generating}
+                  style={{ marginTop: "22px", width: "100%", maxWidth: "310px", padding: "14px 20px", background: generating ? `${c.primaryLight}80` : `linear-gradient(135deg,${c.primaryLight},${c.primary})`, color: "#FFF", border: "none", borderRadius: "16px", fontFamily: theme.font, fontSize: "15px", fontWeight: "700", cursor: generating ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", boxShadow: `0 4px 16px ${c.primary}40` }}>
+                  {generating ? "🌿 Gerando plano..." : "✨ Gerar plano do dia"}
+                </button>
+                <div className="pt-chat__quick-actions" style={{ marginTop: "12px", width: "100%", maxWidth: "310px" }}>
+                  {quickActions.map(s => (
+                    <button key={s} className="pt-chat__quick-action" onClick={() => { setInput(s); taRef.current?.focus(); }}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 
