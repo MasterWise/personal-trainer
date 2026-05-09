@@ -228,15 +228,32 @@ export function AuthProvider({ children }) {
     const firebaseUser = await loginWithFirebaseGoogle();
     setStoredAuthToken(null);
     let backendUser = await fetchMe();
+    let autoRegisterError = null;
     if (!backendUser) {
       try {
         const data = await post("/auth/auto-register", {});
         backendUser = data?.user || null;
-      } catch { /* whitelist miss → fall through to error */ }
+      } catch (e) {
+        autoRegisterError = e;
+      }
     }
     if (!backendUser) {
       await logoutFirebase().catch(() => {});
-      throw new Error("Perfil do app nao encontrado. Peca um convite ou um administrador para autorizar seu e-mail.");
+      const code = autoRegisterError?.code;
+      const status = autoRegisterError?.statusCode;
+      let userMessage;
+      if (code === "WHITELIST_MISS" || code === "MISSING_EMAIL" || status === 403) {
+        userMessage = "Seu e-mail nao esta autorizado. Peca acesso a um administrador.";
+      } else if (status === 409) {
+        userMessage = "Conta com inconsistencia. Tente novamente; se persistir, contate um administrador.";
+      } else if (status === 401) {
+        userMessage = "Sua sessao expirou. Faca login novamente.";
+      } else if (typeof status === "number" && status >= 500) {
+        userMessage = "Erro temporario no servidor. Tente novamente em instantes.";
+      } else {
+        userMessage = "Nao foi possivel entrar. Tente novamente.";
+      }
+      throw new Error(userMessage);
     }
     const nextUser = mapFirebaseUser(firebaseUser, backendUser);
     setUser(nextUser);

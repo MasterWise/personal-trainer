@@ -210,14 +210,10 @@ export default function ChatTab({
   const isFirstSession = (() => {
     try {
       const perfilObj = JSON.parse(docs?.perfil || "{}");
-      const meaningfulKeys = Object.keys(perfilObj).filter(k => {
-        const v = perfilObj[k];
-        if (v == null || v === "") return false;
-        if (Array.isArray(v) && v.length === 0) return false;
-        if (typeof v === "object" && Object.keys(v).length === 0) return false;
-        return true;
-      });
-      return meaningfulKeys.length <= 1;
+      // Pos-onboarding o usuario ja tem nome + objetivo + restricoes/treinos.
+      // Idade e peso_kg sao capturados pela IA via chat — enquanto faltarem,
+      // mantem welcome "Prazer em te conhecer" para sinalizar descoberta inicial.
+      return !(perfilObj.idade && perfilObj.peso_kg);
     } catch { return true; }
   })();
 

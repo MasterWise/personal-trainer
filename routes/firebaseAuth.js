@@ -80,26 +80,30 @@ export default function firebaseAuthRoutes() {
   });
 
   router.post("/api/auth/auto-register", firebaseAuthMiddleware, async (req, res) => {
+    const uid = req.user?.uid;
+    const email = req.user?.email || null;
     try {
       const existing = await firebaseUsersRepository.me(req.user);
       if (existing) return res.json({ user: existing, authProvider: "firebase" });
 
-      const email = req.user.email;
       if (!email) {
-        return res.status(403).json({ error: "Token sem e-mail; nao e possivel auto-registrar" });
+        console.log(JSON.stringify({ event: "auth.failure", reason: "missing_email", uid, ts: new Date().toISOString() }));
+        return res.status(403).json({ error: "Token sem e-mail; nao e possivel auto-registrar", code: "MISSING_EMAIL" });
       }
 
       const whitelistEntry = await firebaseEmailWhitelistRepository.get(email);
       if (!whitelistEntry) {
-        return res.status(403).json({ error: "E-mail nao autorizado pelo administrador" });
+        console.log(JSON.stringify({ event: "auth.failure", reason: "whitelist_miss", uid, email, ts: new Date().toISOString() }));
+        return res.status(403).json({ error: "E-mail nao autorizado pelo administrador", code: "WHITELIST_MISS" });
       }
 
       const user = await ensureUserProfile(req.user, { seed: "empty" });
       await firebaseEmailWhitelistRepository.markConsumed(email, req.user.uid);
       res.json({ user, authProvider: "firebase" });
     } catch (error) {
+      console.log(JSON.stringify({ event: "auth.failure", reason: "internal", uid, email, message: error?.message || String(error), ts: new Date().toISOString() }));
       console.error("[Firebase Auth][Auto-Register]", error);
-      res.status(500).json({ error: "Erro ao auto-registrar usuario" });
+      res.status(500).json({ error: "Erro ao auto-registrar usuario", code: "INTERNAL" });
     }
   });
 

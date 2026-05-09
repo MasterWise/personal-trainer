@@ -25,7 +25,7 @@ import ProgressoView from "./views/ProgressoView.jsx";
 import CadernoView from "./views/CadernoView.jsx";
 import LogsView from "./views/LogsView.jsx";
 import PerfilTab from "./components/perfil/PerfilTab.jsx";
-import OnboardingScreen from "./components/onboarding/OnboardingScreen.jsx";
+import OnboardingFlow from "./components/onboarding/OnboardingFlow.jsx";
 import { deriveHealthViewModel } from "./utils/healthModel.js";
 import { diffPerfil, buildMedidaFromDiff, buildProgressoFromDiff } from "./utils/perfilDiff.js";
 import { PROGRESSO_EMOJIS } from "./data/constants.js";
@@ -1030,7 +1030,7 @@ export default function App() {
   if (!isAuthenticated && hasInviteParam) return <RegisterForm />;
   if (!isAuthenticated) return <LoginForm />;
   if (docsReady && !hasMinimalProfile(docs.perfil)) {
-    return <OnboardingScreen onSave={savePerfil} initialName={user?.name || user?.email} />;
+    return <OnboardingFlow onSave={savePerfil} initialName={user?.name || user?.email} />;
   }
 
   const healthViewModel = deriveHealthViewModel({

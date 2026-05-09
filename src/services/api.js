@@ -37,9 +37,20 @@ async function buildHeaders() {
   return headers;
 }
 
+function makeApiError(method, endpoint, res, data) {
+  const err = new Error(data?.error || `${method} ${endpoint}: ${res.status}`);
+  err.statusCode = res.status;
+  err.code = data?.code;
+  err.payload = data;
+  return err;
+}
+
 export async function get(endpoint) {
   const res = await fetch(`${API_BASE}${endpoint}`, { headers: await buildHeaders() });
-  if (!res.ok) throw new Error(`GET ${endpoint}: ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw makeApiError("GET", endpoint, res, data);
+  }
   return res.json();
 }
 
@@ -51,7 +62,7 @@ export async function post(endpoint, body) {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `POST ${endpoint}: ${res.status}`);
+    throw makeApiError("POST", endpoint, res, data);
   }
   return res.json();
 }
@@ -64,7 +75,7 @@ export async function put(endpoint, body) {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `PUT ${endpoint}: ${res.status}`);
+    throw makeApiError("PUT", endpoint, res, data);
   }
   return res.json();
 }
@@ -74,6 +85,9 @@ export async function del(endpoint) {
     method: "DELETE",
     headers: await buildHeaders(),
   });
-  if (!res.ok) throw new Error(`DELETE ${endpoint}: ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw makeApiError("DELETE", endpoint, res, data);
+  }
   return res.json();
 }
