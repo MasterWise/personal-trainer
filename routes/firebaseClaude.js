@@ -38,7 +38,13 @@ export default function firebaseClaudeRoutes() {
         // Falha defensiva: se token budget der erro de leitura, prefere
         // permitir a chamada (fail-open) e logar. Custo de bloquear chat
         // por bug de leitura de Firestore e maior que de aceitar overshoot.
-        console.warn("[TokenBudget] check falhou, fail-open:", budgetErr?.message || budgetErr);
+        // Log JSON estruturado para alertar via Cloud Logging.
+        console.log(JSON.stringify({
+          event: "token_budget.check_failed",
+          uid: req.user?.uid,
+          message: budgetErr?.message || String(budgetErr),
+          ts: new Date().toISOString(),
+        }));
       }
 
       const gatewayPayload = buildGatewayPayload(req.body);

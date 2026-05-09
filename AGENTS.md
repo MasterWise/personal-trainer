@@ -33,6 +33,27 @@
 - **conversationReady gate**: O hook espera `conversationReady` (alem de `docsReady` e `isAuthenticated`) para evitar race condition onde `currentConvoId` ainda e null.
 - **Testes**: `tests/routes/claude-pending.test.js`, `tests/utils/replay-guard.test.js`.
 
+## Token budget per-user (Sprint 3)
+
+- Modulo `firebase/tokenBudget.js` aplica hard cap diario + mensal de tokens (input+output) por usuario. Default: `TOKEN_BUDGET_DAILY=500000` (~$0,05/dia em gemini-3-flash) e `TOKEN_BUDGET_MONTHLY=5000000`. Override por env. `TOKEN_BUDGET_ENABLED=false` desativa.
+- Counters em `users/{uid}/tokenBudgets/daily_YYYYMMDD` e `monthly_YYYYMM` com `FieldValue.increment` atomico. TTL `expiresAt` em `firestore.indexes.json` limpa docs velhos (48h daily / 35d monthly).
+- Pre-check em `routes/firebaseClaude.js` antes de `enqueueClaudeTask`. Quando estoura, retorna `429 + {code:"TOKEN_BUDGET_EXCEEDED", scope, resetAt, usage}` sem queimar quota Vertex. Fail-open em erro de leitura.
+- Debito em `firebase/worker.js` apos `response.ok` do gateway, paralelo ao `firebaseAiLogsRepository.insert`. Inclui `cachedTokens` (cache_creation + cache_read).
+- Endpoints:
+  - `GET /api/token-budget` — self-service (usuario autenticado ve seu proprio budget).
+  - `GET /api/admin/token-budget/:uid` — admin claim, ve qualquer usuario.
+  - `POST /api/admin/token-budget/:uid/reset` — admin claim, body `{scope:"daily"|"monthly"}`.
+
+## Pipeline CI/CD (Sprint 3)
+
+- `.github/workflows/deploy.yml` — 4 jobs: `lint` + `test` em paralelo, `build` produz artefato `dist/`, `deploy` so em `main` via `environment: production` (required reviewer).
+- Smoke pos-deploy bate `/api/health` validando `firestore && gateway`.
+- Deploy seletivo `--only "hosting,firestore,functions:api,functions:claudeWorker"` para nao tocar a Function `gateway` que vive no sub-projeto `ai-gateway` (mesmo Firebase project).
+- Setup manual obrigatorio:
+  1. `firebase login:ci` localmente -> copiar token -> Settings > Secrets > Actions > criar `FIREBASE_TOKEN`.
+  2. Settings > Environments > criar `production` com required reviewer.
+  3. Settings > Branches > regra de protection em `main` exigindo checks `lint`, `test`, `build` verdes + 1 reviewer.
+
 ## Excecoes locais
 - Preserve o acoplamento via ai-gateway para chamadas Claude; nao reintroduza chamadas diretas ao provider sem necessidade validada.
 - Mudancas no protocolo de `plano`, docs ou updates da IA devem continuar compativeis com structured outputs e com os guards de permissao/escopo ja adotados.

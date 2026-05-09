@@ -7,7 +7,7 @@ name: CI / Deploy
 
 on:
   push:
-    branches: ["main", "**"]
+    branches: ["main", "feat/**", "fix/**", "chore/**", "docs/**"]
   pull_request:
     branches: ["main"]
 
@@ -85,6 +85,11 @@ jobs:
       - run: npm ci --omit=dev
       - name: Deploy seletivo (functions do PT + hosting + firestore)
         env:
+          # Nota: firebase-tools v13 deprecou login tokens em favor de
+          # GOOGLE_APPLICATION_CREDENTIALS apontando para um Service
+          # Account JSON. Para migrar futuramente: substituir
+          # FIREBASE_TOKEN por GOOGLE_APPLICATION_CREDENTIALS_JSON
+          # (secret) decodificado em runtime.
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
           if [ -z "$FIREBASE_TOKEN" ]; then
