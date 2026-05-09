@@ -244,8 +244,6 @@ export function AuthProvider({ children }) {
       let userMessage;
       if (code === "WHITELIST_MISS" || code === "MISSING_EMAIL" || status === 403) {
         userMessage = "Seu e-mail nao esta autorizado. Peca acesso a um administrador.";
-      } else if (status === 409) {
-        userMessage = "Conta com inconsistencia. Tente novamente; se persistir, contate um administrador.";
       } else if (status === 401) {
         userMessage = "Sua sessao expirou. Faca login novamente.";
       } else if (typeof status === "number" && status >= 500) {

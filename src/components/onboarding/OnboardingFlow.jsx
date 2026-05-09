@@ -3,6 +3,12 @@ import Tela1Nome from "./Tela1Nome.jsx";
 import Tela2Objetivo from "./Tela2Objetivo.jsx";
 import Tela3Restricoes from "./Tela3Restricoes.jsx";
 
+const FREQ_LABELS = {
+  "1-2x": "1-2x por semana",
+  "3-5x": "3-5x por semana",
+  "diario": "quase todos os dias",
+};
+
 function deriveDefaultName(initialName) {
   if (typeof initialName !== "string") return "";
   const trimmed = initialName.trim();
@@ -14,9 +20,23 @@ function deriveDefaultName(initialName) {
 function buildPerfilPayload(data) {
   const out = { nome: data.nome.trim() };
   if (data.objetivo) out.objetivo = data.objetivo;
-  if (data.meta_descricao && data.meta_descricao.trim()) out.meta_descricao = data.meta_descricao.trim();
+
+  // meta_descricao = texto livre + linha sobre frequencia/tipo de treino
+  // (evita shape divergente em treinos_planejados, que e populado via chat).
+  const metaParts = [];
+  const trim = (data.meta_descricao || "").trim();
+  if (trim) metaParts.push(trim);
+  if (data.frequenciaTreino && data.frequenciaTreino !== "nao") {
+    const freqLabel = FREQ_LABELS[data.frequenciaTreino] || data.frequenciaTreino;
+    const tipoStr = (data.tipoTreino || "").trim();
+    metaParts.push(`Treina atualmente ${freqLabel}${tipoStr ? ` (${tipoStr})` : ""}.`);
+  } else if (data.frequenciaTreino === "nao") {
+    metaParts.push("Hoje nao mantem rotina de treino.");
+  }
+  const meta = metaParts.join("\n\n");
+  if (meta) out.meta_descricao = meta;
+
   if (Array.isArray(data.limitacoes) && data.limitacoes.length) out.limitacoes = data.limitacoes;
-  if (Array.isArray(data.treinos_planejados) && data.treinos_planejados.length) out.treinos_planejados = data.treinos_planejados;
   return out;
 }
 
@@ -27,7 +47,8 @@ export default function OnboardingFlow({ onSave, initialName }) {
     objetivo: "",
     meta_descricao: "",
     limitacoes: [],
-    treinos_planejados: [],
+    frequenciaTreino: "",
+    tipoTreino: "",
   });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -87,9 +108,10 @@ export default function OnboardingFlow({ onSave, initialName }) {
   return (
     <Tela3Restricoes
       limitacoes={data.limitacoes}
-      treinosPlanejados={data.treinos_planejados}
+      frequenciaTreino={data.frequenciaTreino}
+      tipoTreino={data.tipoTreino}
       onChange={update}
-      onSkip={() => handleSave({ limitacoes: [], treinos_planejados: [] })}
+      onSkip={() => handleSave()}
       onSubmit={() => handleSave()}
       onBack={() => setStep(2)}
       saving={saving}
