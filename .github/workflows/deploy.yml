@@ -1,0 +1,103 @@
+name: CI / Deploy
+
+# Disparos:
+# - push em main: lint + test + build + deploy + smoke (passa pelo environment "production"
+#   que tem required reviewer, configurado em Settings > Environments)
+# - push em outras branches OU PRs: so lint + test + build (sem deploy)
+
+on:
+  push:
+    branches: ["main", "**"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  # ─── Lint + test rodam em paralelo ────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:run
+
+  # ─── Build depende dos dois e produz artefato dist/ ───────────────────────
+  build:
+    name: Build
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  # ─── Deploy so roda em main e exige aprovacao manual via environment ─────
+  deploy:
+    name: Deploy (mw-personal-trainer)
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://mw-personal-trainer.web.app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: npm ci --omit=dev
+      - name: Deploy seletivo (functions do PT + hosting + firestore)
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          if [ -z "$FIREBASE_TOKEN" ]; then
+            echo "::error::FIREBASE_TOKEN secret nao configurado em Settings > Secrets > Actions"
+            exit 1
+          fi
+          npx firebase-tools@^13 deploy \
+            --only "hosting,firestore,functions:api,functions:claudeWorker" \
+            --project=mw-personal-trainer \
+            --token "$FIREBASE_TOKEN" \
+            --non-interactive
+      - name: Smoke test pos-deploy
+        run: |
+          set -euo pipefail
+          curl -fsS https://api-ewylrqiwjq-rj.a.run.app/api/health | tee /tmp/health.json
+          jq -e '.status=="ok" and .checks.firestore==true and .checks.gateway==true' /tmp/health.json

@@ -1,6 +1,7 @@
 import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import { firebaseAiLogsRepository, firebasePendingRepository } from "./repositories.js";
 import { buildGatewayPayload, extractStructuredResponse, redactSensitive } from "./payload.js";
+import { debit as debitTokenBudget } from "./tokenBudget.js";
 
 const authClient = new OAuth2Client();
 const gatewayAuth = new GoogleAuth();
@@ -153,6 +154,10 @@ export async function processClaudeTask({ uid, responseId }) {
       updatesJson: structured.updatesJson,
     });
 
+    const inputTokens = data.usage?.input_tokens || 0;
+    const outputTokens = data.usage?.output_tokens || 0;
+    const cachedTokens = (data.usage?.cache_creation_input_tokens || 0) + (data.usage?.cache_read_input_tokens || 0);
+
     await firebaseAiLogsRepository.insert(uid, {
       systemPrompt: gatewayPayload.system || null,
       messagesSent: redactSensitive(gatewayPayload.messages || []),
@@ -163,13 +168,22 @@ export async function processClaudeTask({ uid, responseId }) {
       replyText: structured.replyText,
       updatesJson: structured.updatesJson,
       updatesCount: structured.updatesCount,
-      inputTokens: data.usage?.input_tokens || null,
-      outputTokens: data.usage?.output_tokens || null,
-      totalTokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0) || null,
+      inputTokens: inputTokens || null,
+      outputTokens: outputTokens || null,
+      cachedTokens: cachedTokens || null,
+      totalTokens: (inputTokens + outputTokens) || null,
       durationMs,
       success: true,
       requestPayload: redactSensitive(gatewayPayload),
     });
+
+    // Debita token budget (best-effort, nao bloqueia retorno em caso de
+    // erro de Firestore — o ai_log ja foi inserido como fonte de verdade).
+    try {
+      await debitTokenBudget(uid, { inputTokens, outputTokens, cachedTokens });
+    } catch (budgetErr) {
+      console.warn("[TokenBudget] debit falhou (uid=" + uid + "):", budgetErr?.message || budgetErr);
+    }
 
     return { ok: true, status: "pending" };
   } catch (error) {
