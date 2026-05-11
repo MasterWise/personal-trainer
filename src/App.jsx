@@ -26,6 +26,8 @@ import CadernoView from "./views/CadernoView.jsx";
 import LogsView from "./views/LogsView.jsx";
 import PerfilTab from "./components/perfil/PerfilTab.jsx";
 import OnboardingFlow from "./components/onboarding/OnboardingFlow.jsx";
+import InstallButton from "./components/ui/InstallButton.jsx";
+import UpdateBanner from "./components/ui/UpdateBanner.jsx";
 import { deriveHealthViewModel } from "./utils/healthModel.js";
 import { diffPerfil, buildMedidaFromDiff, buildProgressoFromDiff } from "./utils/perfilDiff.js";
 import { PROGRESSO_EMOJIS } from "./data/constants.js";
@@ -73,6 +75,7 @@ function SetupForm() {
           {loading ? "Criando..." : "Criar conta"}
         </button>
       </form>
+      <div style={{ marginTop: "20px" }}><InstallButton /></div>
     </div>
   );
 }
@@ -127,6 +130,7 @@ function LoginForm() {
           </button>
         )}
       </form>
+      <div style={{ marginTop: "20px" }}><InstallButton /></div>
     </div>
   );
 }
@@ -229,6 +233,7 @@ function RegisterForm() {
       <button onClick={() => setShowLogin(true)} style={{ background: "none", border: "none", color: "var(--pt-color-primary)", fontFamily: "var(--pt-font-body)", fontSize: "13px", fontWeight: "600", cursor: "pointer", marginTop: "16px" }}>
         Já tem conta? Entrar
       </button>
+      <div style={{ marginTop: "20px" }}><InstallButton /></div>
     </div>
   );
 }
@@ -1110,6 +1115,7 @@ export default function App() {
 
   return (
     <div className="pt-app">
+      <UpdateBanner />
       <Header
         docsReady={docsReady}
         docsStatus={docsStatus}

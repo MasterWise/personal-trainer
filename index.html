@@ -7,6 +7,11 @@
   <title>Personal Trainer — Coach</title>
   <link rel="manifest" href="%BASE_URL%manifest.json">
   <link rel="icon" href="%BASE_URL%icons/icon.svg" type="image/svg+xml">
+  <!-- iOS Safari: necessário para "Adicionar à Tela de Início" funcionar como PWA standalone -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="PT Coach">
+  <link rel="apple-touch-icon" href="%BASE_URL%icons/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
@@ -17,8 +22,21 @@
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("%BASE_URL%sw.js", { scope: "%BASE_URL%" }).catch((err) => {
+        // updateViaCache: "none" garante que o sw.js novo é detectado em até 1
+        // visita, sem esperar o cache HTTP de 24h do próprio service worker.
+        navigator.serviceWorker.register("%BASE_URL%sw.js", {
+          scope: "%BASE_URL%",
+          updateViaCache: "none",
+        }).catch((err) => {
           console.error("Service worker registration failed", err);
+        });
+
+        // Escuta broadcast do SW: quando uma nova versão ativar, dispara
+        // um CustomEvent no window para que o React (UpdateBanner) reaja.
+        navigator.serviceWorker.addEventListener("message", (ev) => {
+          if (ev?.data?.type === "SW_UPDATED") {
+            window.dispatchEvent(new CustomEvent("pt:sw-updated"));
+          }
         });
       });
     }

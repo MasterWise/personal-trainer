@@ -54,6 +54,25 @@
   2. Settings > Environments > criar `production` com required reviewer.
   3. Settings > Branches > regra de protection em `main` exigindo checks `lint`, `test`, `build` verdes + 1 reviewer.
 
+## PWA (Sprint A - splendid-pinwheel)
+
+- App instalavel em Chrome Android (botao "Instalar app") e Safari iOS (instrucao Compartilhar -> Adicionar a Tela de Inicio).
+- **Manifest**: `public/manifest.json` com `id:"pt-coach"` estavel, `lang:"pt-BR"`, `dir:"ltr"`, `categories:[health,fitness,lifestyle]`, 4 entries de icones (SVG `any`, PNG-192 `any`, PNG-512 `any`, PNG-512 `maskable`). Paths usam placeholder `__BASE__` substituido em build pelo plugin Vite `pwaBaseTransform`.
+- **Icones**: 4 PNGs gerados via Sharp a partir de `public/icons/icon.svg`. Rodar manualmente quando o SVG mudar:
+  ```bash
+  npm run icons:generate   # gera icon-192, icon-512, icon-512-maskable (safe-zone 80%), apple-touch-icon (180x180)
+  ```
+  Nao roda em prebuild para nao atrasar `npm run build` em todo CI run.
+- **Service Worker v5** (`public/sw.js`): network-first com `clients.claim`, `APP_SHELL` inclui icones novos, `message` handler para `SKIP_WAITING`, broadcast `SW_UPDATED` em `activate` (so em upgrade — `oldCaches.length > 0`).
+- **Registro do SW** (`index.html`): `register(..., { updateViaCache: "none" })` evita cache HTTP de 24h do proprio sw.js. Listener `message` dispara CustomEvent `pt:sw-updated` no window.
+- **UpdateBanner** (`src/components/ui/UpdateBanner.jsx`): exibe "Nova versao disponivel — Atualizar" quando o evento dispara; clique chama `registration.waiting?.postMessage({type:"SKIP_WAITING"})` + `location.reload()`.
+- **InstallButton** (`src/components/ui/InstallButton.jsx`): card discreto, renderizado em `SetupForm`/`LoginForm`/`RegisterForm` (telas antes do app denso). Hook `useInstallPrompt` captura `beforeinstallprompt`, detecta iOS/standalone, dismissa por 7 dias em `localStorage`.
+- **Cache headers** (`firebase.json`): `/manifest.json` e `/sw.js` com `no-cache`; `/icons/**` com `max-age=31536000, immutable`.
+- **Limitacoes em dev**: `vite dev` nao roda o plugin `pwaBaseTransform` (so em `build`). Por isso o manifest em dev serve com placeholder `__BASE__` literal e icones falham. PWA validation completa so faz sentido contra `vite build` + `vite preview` ou contra prod.
+- **Push notifications: FORA DO ESCOPO** (DECISIONS 2026-04-12). Nao adicionar `web-push`/VAPID sem reabrir decisao.
+- **Arquivos criticos**: `public/manifest.json`, `public/sw.js`, `public/icons/`, `scripts/generate-icons.mjs`, `vite.config.js` (plugin `pwaBaseTransform`), `index.html` (meta iOS + register), `src/hooks/useInstallPrompt.js`, `src/components/ui/InstallButton.jsx`, `src/components/ui/UpdateBanner.jsx`, `firebase.json` (headers).
+- **Testes**: `tests/hooks/use-install-prompt.test.jsx`, `tests/components/install-button.test.jsx` (jsdom via `// @vitest-environment jsdom`).
+
 ## Excecoes locais
 - Preserve o acoplamento via ai-gateway para chamadas Claude; nao reintroduza chamadas diretas ao provider sem necessidade validada.
 - Mudancas no protocolo de `plano`, docs ou updates da IA devem continuar compativeis com structured outputs e com os guards de permissao/escopo ja adotados.

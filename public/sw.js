@@ -1,17 +1,29 @@
 const CACHE_PREFIX = "pt-coach-";
-const CACHE_NAME = `${CACHE_PREFIX}v4`;
-const APP_SHELL = ["/pt/", "/pt/index.html", "/pt/manifest.json", "/pt/icons/icon.svg"];
+const CACHE_NAME = `${CACHE_PREFIX}v5`;
+// Caminhos com placeholder __BASE__ — substituído em build pelo plugin
+// pwaBaseTransform definido em vite.config.js. Em prod resolve para "/",
+// em dev (Caddy proxy) resolve para "/pt/".
+const APP_SHELL = [
+  "__BASE__",
+  "__BASE__index.html",
+  "__BASE__manifest.json",
+  "__BASE__icons/icon.svg",
+  "__BASE__icons/icon-192.png",
+  "__BASE__icons/icon-512.png",
+  "__BASE__icons/icon-512-maskable.png",
+  "__BASE__icons/apple-touch-icon.png",
+];
 
 async function getBuildAssets() {
-  const response = await fetch("/pt/index.html", { cache: "no-cache" });
+  const response = await fetch("__BASE__index.html", { cache: "no-cache" });
   const html = await response.text();
   const assets = new Set(APP_SHELL);
   const assetPattern = /(?:src|href)="([^"]+)"/g;
 
   for (const match of html.matchAll(assetPattern)) {
     const assetPath = match[1];
-    if (!assetPath.startsWith("/pt/")) continue;
-    if (assetPath.startsWith("/pt/sw.js")) continue;
+    if (!assetPath.startsWith("__BASE__")) continue;
+    if (assetPath.startsWith("__BASE__sw.js")) continue;
     assets.add(assetPath);
   }
 
@@ -22,7 +34,8 @@ self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
     const assets = await getBuildAssets();
-    await cache.addAll(assets);
+    // allSettled: se um asset falhar (404 transitório), instalação continua
+    await Promise.allSettled(assets.map((url) => cache.add(url)));
     self.skipWaiting();
   })());
 });
@@ -30,13 +43,27 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(
-      keys
-        .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
-        .map((key) => caches.delete(key))
-    );
-    self.clients.claim();
+    const oldCaches = keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME);
+    // Detectar se este activate é um UPGRADE (havia caches anteriores) ou
+    // a primeira instalação (nenhum cache antigo). Só fazemos broadcast em
+    // upgrade — senão usuária nova veria "Nova versão disponível" na primeira
+    // visita, falso positivo.
+    const isUpgrade = oldCaches.length > 0;
+    await Promise.all(oldCaches.map((key) => caches.delete(key)));
+    await self.clients.claim();
+    if (isUpgrade) {
+      const clientList = await self.clients.matchAll({ type: "window" });
+      clientList.forEach((client) => client.postMessage({ type: "SW_UPDATED" }));
+    }
   })());
+});
+
+self.addEventListener("message", (event) => {
+  // Permite que o client force a troca de um SW pendente (ex.: usuário
+  // clicou em "Atualizar agora" no UpdateBanner).
+  if (event?.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("fetch", (event) => {
@@ -46,6 +73,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  // /api/** é dinâmico (Firebase Function) — nunca cachear.
   if (url.pathname.startsWith("/api/")) return;
 
   event.respondWith((async () => {
@@ -61,7 +89,7 @@ self.addEventListener("fetch", (event) => {
     } catch {
       const cache = await caches.open(CACHE_NAME);
       return (await cache.match(request))
-        || (await cache.match("/pt/index.html"))
+        || (await cache.match("__BASE__index.html"))
         || Response.error();
     }
   })());
