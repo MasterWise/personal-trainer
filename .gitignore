@@ -4,6 +4,16 @@ package-lock.json
 .env
 .env.local
 .env.*.local
+# Env files carregados pelo Firebase em deploy contem segredos
+# (BOOTSTRAP_SECRET, service accounts) — nunca versionar.
+.env.mw-personal-trainer
+# Mantemos .env.production e .env.example versionados explicitamente.
+!.env.production
+!.env.example
+!.env.firebase.example
+
+# Cache local do firebase-tools (hosting, functions, etc.)
+.firebase/
 
 *.log
 .DS_Store
