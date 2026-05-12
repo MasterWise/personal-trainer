@@ -66,6 +66,18 @@ self.addEventListener("message", (event) => {
   }
 });
 
+// Estrategia de cache: NETWORK-FIRST com fallback para cache em erro de rede.
+// Implicacao para "sempre atualizar online":
+//   - Toda requisicao GET de mesma origem (exceto /api/**) tenta fetch() primeiro.
+//   - Se rede responde, cacheia a versao nova e devolve. Cache antigo eh sobrescrito.
+//   - Se rede falha (offline ou 5xx ao nivel de network), serve cache como fallback.
+//   - /api/** nunca passa pelo SW — eh dinamico (Firebase Function).
+// Combinado com:
+//   - Headers no-cache em /index.html, /manifest.json, /sw.js (firebase.json)
+//   - registration.update() periodico no client (index.html)
+//   - Bundle assets com hash imutavel (Vite)
+// O resultado eh que uma aba online jamais serve conteudo stale por mais de
+// alguns segundos apos um deploy.
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
@@ -73,7 +85,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // /api/** é dinâmico (Firebase Function) — nunca cachear.
+  // /api/** eh dinamico (Firebase Function) — nunca cachear.
   if (url.pathname.startsWith("/api/")) return;
 
   event.respondWith((async () => {

@@ -20,24 +20,77 @@
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
   <script>
+    // Estrategia de atualizacao: o app SEMPRE busca versao nova quando online.
+    // Camadas:
+    //   1. SW registrado com updateViaCache:"none" -> sw.js nao fica preso em cache HTTP 24h
+    //   2. registration.update() disparado em: load, focus, visibilitychange, online, e timer 5min
+    //   3. Quando novo SW entra em estado "waiting" (instalado mas nao ativo), dispara
+    //      pt:sw-updated imediatamente para o UpdateBanner aparecer sem precisar esperar
+    //      a usuaria fechar todas as abas
+    //   4. Quando o SW ativo broadcasta SW_UPDATED (em upgrade), tambem dispara pt:sw-updated
+    //   5. firebase.json: index.html/manifest.json/sw.js com no-cache; /assets/** immutable
     if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        // updateViaCache: "none" garante que o sw.js novo é detectado em até 1
-        // visita, sem esperar o cache HTTP de 24h do próprio service worker.
-        navigator.serviceWorker.register("%BASE_URL%sw.js", {
-          scope: "%BASE_URL%",
-          updateViaCache: "none",
-        }).catch((err) => {
+      window.addEventListener("load", async () => {
+        let registration;
+        try {
+          registration = await navigator.serviceWorker.register("%BASE_URL%sw.js", {
+            scope: "%BASE_URL%",
+            updateViaCache: "none",
+          });
+        } catch (err) {
           console.error("Service worker registration failed", err);
+          return;
+        }
+
+        function notifyUpdateAvailable() {
+          // Idempotente — UpdateBanner ignora eventos repetidos via useState
+          window.dispatchEvent(new CustomEvent("pt:sw-updated"));
+        }
+
+        // Caso ja exista um SW "waiting" no momento do load (instalado por aba anterior),
+        // notifica imediatamente para o banner aparecer.
+        if (registration.waiting && navigator.serviceWorker.controller) {
+          notifyUpdateAvailable();
+        }
+
+        // Quando o browser detecta um novo sw.js, dispara "updatefound" e o novo worker
+        // entra em "installing". Quando ele completa o install e fica "waiting", notificamos.
+        registration.addEventListener("updatefound", () => {
+          const newWorker = registration.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener("statechange", () => {
+            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+              notifyUpdateAvailable();
+            }
+          });
         });
 
-        // Escuta broadcast do SW: quando uma nova versão ativar, dispara
-        // um CustomEvent no window para que o React (UpdateBanner) reaja.
+        // O SW v5+ broadcasta SW_UPDATED em "activate" (apenas em upgrade real).
+        // Cobre o caso em que skipWaiting/clients.claim acontecem sem passar pela
+        // sequencia updatefound deste client (ex: aba foi aberta apos o install).
         navigator.serviceWorker.addEventListener("message", (ev) => {
           if (ev?.data?.type === "SW_UPDATED") {
-            window.dispatchEvent(new CustomEvent("pt:sw-updated"));
+            notifyUpdateAvailable();
           }
         });
+
+        // Trigger de revalidacao: SEMPRE que online + ativo. Garante que aba aberta por
+        // horas ou dias detecte versoes novas sem reload manual.
+        function checkForUpdate() {
+          if (!navigator.onLine) return;
+          registration.update().catch(() => { /* network glitch; proxima checagem cobre */ });
+        }
+
+        // 1) Foco na janela (alt-tab volta, switch de app)
+        window.addEventListener("focus", checkForUpdate);
+        // 2) Aba volta a ficar visivel (mobile/desktop browser swipe)
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) checkForUpdate();
+        });
+        // 3) Reconectou apos offline
+        window.addEventListener("online", checkForUpdate);
+        // 4) Polling de seguranca: aba ficou em foreground sem trocar de tab por horas
+        setInterval(checkForUpdate, 5 * 60 * 1000); // 5 minutos
       });
     }
   </script>
