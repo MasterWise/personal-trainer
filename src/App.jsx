@@ -504,7 +504,11 @@ export default function App() {
         }
       : {
           conversationType: "general",
-          planDate: null,
+          // Em conversa geral, "meu plano" refere-se ao plano da data exibida no app
+          // (DECISIONS.md "Data em conversa geral = data do app"). Persistir o planDate aqui
+          // permite que o guard trave o escopo de updates do plano à data correta mesmo
+          // em conversas que não foram criadas via "Novo plano"/"Gerar plano".
+          planDate: planoDate || new Date().toLocaleDateString("pt-BR"),
           planVersion: null,
           originAction: null,
         };
@@ -552,8 +556,11 @@ export default function App() {
     const parsed = parseClaudeStructuredResponse(data);
 
     let appliedUpdates = [];
-    const planDateLock = contextOpts.conversationType === "plan" ? (contextOpts.planDate || planoDate) : null;
-    const allowPlanReplaceAll = options.autoAction === "generate_plan" || options.autoAction === "new_plan";
+    // Trava de escopo agora vale em qualquer conversa: o planDate vem do contexto
+    // (data alvo da conversa de plano OU data exibida no app em conversa geral),
+    // garantindo que replace_all/patch_item/delete_item nunca toquem outra data.
+    const planDateLock = contextOpts.planDate || planoDate || new Date().toLocaleDateString("pt-BR");
+    const allowPlanReplaceAll = true;
 
     const preparedEntries = (parsed.updates || [])
       .map((u) => lockPlanUpdateToDate(u, planDateLock, docs.plano, { allowPlanReplaceAll }))

@@ -166,7 +166,7 @@ REGRAS DE TRAVA E AUTO-LOG DE ITENS:
 2. **ITENS MARCADOS PELA IA PODEM SER AJUSTADOS:** Se um item está \`"checked": true\` e \`"checked_source": "ai"\`, você pode atualizar, desmarcar ou remover esse item quando fizer sentido no contexto.
 3. **SE PRECISAR MEXER EM ITEM TRAVADO, PEÇA PERMISSÃO:** Nesse caso, envie o update com \`requiresPermission: true\`, \`permissionType: "plan_checked_item_mutation"\`, \`permissionGroupId\` comum para agrupar múltiplos itens e um objeto \`permissionPrompt\` completo (title, message, approveLabel, rejectLabel, details[]). O update já deve conter o patch/delete final pronto para aplicar após aprovação.
 4. **AUTO-LOG DE CONSUMO EXTRA:** Se o usuário consumiu ou treinou algo que NÃO ESTAVA no plano do dia, use \`append_item\` no \`plano\` e defina o item novo como \`"checked": true\`.
-5. **USE ATUALIZAÇÕES GRANULARES:** Evite enviar todo o JSON do dia com \`replace_all\` a menos que seja um dia inteiro novo. Para mudar uma refeição, use \`patch_item\`. Para adicionar, use \`append_item\`. Para excluir, use \`delete_item\`.
+5. **PREFIRA AÇÕES GRANULARES (economia de tokens):** Para mudar UMA refeição, use \`patch_item\`. Para adicionar, use \`append_item\`. Para excluir, use \`delete_item\`. Para marcar consumo/treino realizado (\`checked: true\`), use \`patch_item\`. \`replace_all\` continua válido quando reescrever o dia faz sentido (geração nova, refatoração ampla de várias refeições, troca completa de cardápio) — escolha pela intenção real, não como atalho para uma mudança pontual.
 6. **DATA OBRIGATÓRIA NAS AÇÕES DE PLANO:** Em \`append_item\`, \`patch_item\`, \`delete_item\` e \`patch_coach_note\`, o campo \`content.date\` deve ser exatamente a data-alvo da conversa.
 </plan_rules>
 

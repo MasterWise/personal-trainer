@@ -74,22 +74,23 @@ export function usePendingRecovery({
 
       const liveDocs = docsRef.current;
 
-      // Derive intent from the *pending doc* (persisted at POST /claude time),
+      // Derive the date lock from the *pending doc* (persisted at POST /claude time),
       // not from currentConvoMeta (which can be stale if the user switched
       // conversations between the POST and the async response arrival).
-      // The 3 fields (auto_action, conversation_type, plan_date) are written
-      // by firebase/repositories.js#createQueued and exposed by get().
+      // plan_date is now always persisted — both for plan conversations and for
+      // general conversations (where it captures the date shown in the app at
+      // POST time). This keeps replace_all/patch_item/delete_item scoped to the
+      // intended date even when the response arrives hours later.
       const pendingMeta = {
         conversationType: full.conversation_type ?? null,
         planDate: full.plan_date ?? null,
         autoAction: full.auto_action ?? null,
       };
       const fallbackMeta = currentConvoMetaRef.current;
-      const planDateLock = pendingMeta.conversationType === "plan"
-        ? (pendingMeta.planDate || null)
-        : (fallbackMeta?.type === "plan" ? (fallbackMeta.planDate || null) : null);
-      const allowPlanReplaceAll = pendingMeta.autoAction === "generate_plan"
-        || pendingMeta.autoAction === "new_plan";
+      const planDateLock = pendingMeta.planDate
+        || fallbackMeta?.planDate
+        || null;
+      const allowPlanReplaceAll = true;
 
       const preparedEntries = (parsed.updates || [])
         .map((u) => lockPlanUpdateToDate(u, planDateLock, liveDocs.plano, { allowPlanReplaceAll }))

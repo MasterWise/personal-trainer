@@ -105,11 +105,11 @@ describe("usePendingRecovery — autoridade derivada do pending", () => {
     expect(passedUpdates[0]).toMatchObject({ file: "plano", action: "replace_all", targetDate: "13/05/2026" });
   });
 
-  it("rejeita replace_all em conversa de plano sem auto_action (defensive default mantido)", async () => {
+  it("aceita replace_all em conversa de plano (continuacao) sem auto_action explicito", async () => {
     const planJson = JSON.stringify({
       date: "14/05/2026",
       meta: { kcal_total: 2000 },
-      grupos: [{ nome: "Cafe", itens: [] }],
+      grupos: [{ nome: "Jantar", itens: [{ id: "j1", texto: "Frango", checked: false }] }],
     });
     const planUpdate = {
       file: "plano",
@@ -139,8 +139,50 @@ describe("usePendingRecovery — autoridade derivada do pending", () => {
 
     renderRecovery();
 
-    await waitFor(() => expect(post).toHaveBeenCalled());
-    expect(applyUpdateBatchMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(applyUpdateBatchMock).toHaveBeenCalled());
+    const passedUpdates = applyUpdateBatchMock.mock.calls[0][0];
+    expect(passedUpdates).toHaveLength(1);
+    expect(passedUpdates[0]).toMatchObject({ file: "plano", action: "replace_all", targetDate: "14/05/2026" });
+  });
+
+  it("aceita replace_all em conversa geral usando plan_date do pending como trava de escopo", async () => {
+    const planJson = JSON.stringify({
+      date: "16/05/2026",
+      meta: { kcal_total: 1900 },
+      grupos: [{ nome: "Almoco", itens: [{ id: "a1", texto: "Salada", checked: true }] }],
+    });
+    const planUpdate = {
+      file: "plano",
+      action: "replace_all",
+      targetDate: "16/05/2026",
+      content: planJson,
+    };
+    const rawResponse = buildRawResponse([planUpdate]);
+
+    get
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "mno",
+            status: "pending",
+            conversation_id: "c-general",
+            created_at: "2026-05-16T13:00:00Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        response_raw: JSON.stringify(rawResponse),
+        conversation_type: "general",
+        plan_date: "16/05/2026",
+        auto_action: null,
+      });
+
+    renderRecovery({ currentConvoId: "c-general" });
+
+    await waitFor(() => expect(applyUpdateBatchMock).toHaveBeenCalled());
+    const passedUpdates = applyUpdateBatchMock.mock.calls[0][0];
+    expect(passedUpdates).toHaveLength(1);
+    expect(passedUpdates[0]).toMatchObject({ file: "plano", action: "replace_all", targetDate: "16/05/2026" });
   });
 
   it("ignora currentConvoMeta desatualizado e usa metadados do pending", async () => {
