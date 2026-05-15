@@ -47,7 +47,7 @@ describe("normalizePlanDay", () => {
 });
 
 describe("normalizeNotePayload", () => {
-  it("preserva nota como cancanonica", () => {
+  it("preserva nota como canonica", () => {
     const out = normalizeNotePayload({ nota: "minha nota", date: "13/05/2026" });
     expect(out.nota).toBe("minha nota");
     expect(out.date).toBe("13/05/2026");
