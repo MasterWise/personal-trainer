@@ -165,6 +165,69 @@ describe("DocsProvider", () => {
     expect(saved["12/04/2026"].grupos).toEqual([]);
   });
 
+  it("replace_all com nota_coach (snake_case) normaliza para notaCoach (camelCase) ao gravar", async () => {
+    mocks.get.mockResolvedValueOnce({
+      documents: {
+        plano: "{}",
+      },
+    });
+
+    render(
+      <DocsProvider>
+        <Harness />
+      </DocsProvider>
+    );
+
+    await waitFor(() => expect(docsApi?.docsReady).toBe(true));
+
+    await act(async () => {
+      await docsApi.applyUpdate({
+        file: "plano",
+        action: "replace_all",
+        targetDate: "13/05/2026",
+        content: {
+          date: "13/05/2026",
+          grupos: [{ nome: "Cafe", itens: [{ id: "c1", texto: "Banana", checked: false }] }],
+          nota_coach: "Foco total hoje",
+        },
+      });
+    });
+
+    const saved = JSON.parse(docsApi.docs.plano);
+    expect(saved["13/05/2026"].notaCoach).toBe("Foco total hoje");
+    expect(saved["13/05/2026"]).not.toHaveProperty("nota_coach");
+  });
+
+  it("patch_coach_note aceita content.nota_coach como alias de content.nota", async () => {
+    mocks.get.mockResolvedValueOnce({
+      documents: {
+        plano: JSON.stringify({
+          "13/05/2026": { date: "13/05/2026", notaCoach: "antiga", grupos: [] },
+        }),
+      },
+    });
+
+    render(
+      <DocsProvider>
+        <Harness />
+      </DocsProvider>
+    );
+
+    await waitFor(() => expect(docsApi?.docsReady).toBe(true));
+
+    await act(async () => {
+      await docsApi.applyUpdate({
+        file: "plano",
+        action: "patch_coach_note",
+        targetDate: "13/05/2026",
+        content: { nota_coach: "nota nova via alias" },
+      });
+    });
+
+    const saved = JSON.parse(docsApi.docs.plano);
+    expect(saved["13/05/2026"].notaCoach).toBe("nota nova via alias");
+  });
+
   it("clearDocs e restoreDocs recarregam o estado persistido", async () => {
     mocks.get
       .mockResolvedValueOnce({ documents: { micro: "original" } })

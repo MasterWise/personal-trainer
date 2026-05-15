@@ -714,6 +714,9 @@ export const firebasePendingRepository = {
       updatedAt: createdAt,
       expiresAt,
       taskName: null,
+      autoAction: typeof payload.autoAction === "string" ? payload.autoAction : null,
+      conversationType: typeof payload.conversationType === "string" ? payload.conversationType : null,
+      planDate: typeof payload.planDate === "string" ? payload.planDate : null,
     });
     return { responseId, createdAt };
   },
@@ -780,6 +783,9 @@ export const firebasePendingRepository = {
         updates_json: data.updatesJson,
         status: data.status,
         created_at: data.createdAt,
+        auto_action: data.autoAction ?? null,
+        conversation_type: data.conversationType ?? null,
+        plan_date: data.planDate ?? null,
       };
     });
   },
@@ -800,6 +806,9 @@ export const firebasePendingRepository = {
       status: data.status,
       created_at: data.createdAt,
       processed_at: data.processedAt || null,
+      auto_action: data.autoAction ?? null,
+      conversation_type: data.conversationType ?? null,
+      plan_date: data.planDate ?? null,
     };
   },
 

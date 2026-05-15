@@ -53,6 +53,9 @@ export default function firebaseClaudeRoutes() {
         conversationId,
         cliSessionId: _sessionId || null,
         requestPayload: { body: req.body, gatewayPayload },
+        autoAction: typeof req.body?.autoAction === "string" ? req.body.autoAction : null,
+        conversationType: typeof req.body?.conversationType === "string" ? req.body.conversationType : null,
+        planDate: typeof req.body?.planDate === "string" ? req.body.planDate : null,
       });
 
       let task = { mode: "disabled", taskName: null };

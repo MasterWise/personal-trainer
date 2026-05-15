@@ -4,6 +4,9 @@
 
 | Decisao | Motivo |
 |---|---|
+| Intent (`autoAction`/`conversationType`/`planDate`) persistido no `pendingResponses` | Em modo Firebase a resposta da IA volta via polling do `pendingResponses` (Cloud Tasks), num ciclo onde o `currentConvoMeta` do client pode ter mudado entre o POST e o retorno. Persistir os 3 campos como top-level no doc do pending preserva a autorização original para `replace_all` (so `auto_action in ["new_plan","generate_plan"]` libera) sem depender do estado volátil do app. |
+| `normalizePlanDay` reutilizado por DocsContext e planUpdateGuard | Gemini Flash emite `nota_coach` (snake_case) no JSON do plano enquanto o resto do app usa `notaCoach` (camelCase). Centralizar a conversão num único util (`src/utils/planNormalize.js`) garante que tanto a persistência (DocsContext) quanto a comparação para detecção de note-only (planUpdateGuard.serializeComparablePlan) operem sobre a mesma forma canônica. Evita notas órfãs no Firestore e regressões da heurística `buildCoachNoteUpdateFromReplaceAll`. |
+| Drops do guard com `console.warn` estruturado | Cada `return null` em `lockPlanUpdateToDate` passa por `dropUpdate(reason, update)` antes — registra `{reason, file, action, targetDate}` no console com prefix `[planUpdateGuard]`. Razões enumeradas: `replace_all_payload_invalid_or_date_mismatch`, `replace_all_not_authorized`, `granular_payload_invalid`. Custo de 1 linha de log é menor do que de uma regressão silenciosa como a do hotfix 2026-05-15. |
 | Firebase backend paralelo por flag | `FIREBASE_BACKEND=true` permite desenvolver Hosting/Functions/Auth/Firestore sem quebrar o runtime SQLite da VPS |
 | Firestore recria conceitos, sem importar SQLite automaticamente | Cutover sera tratado como re-onboarding, preservando escolha de nao migrar dados existentes por padrao |
 | Response Inbox assincrona via Cloud Tasks | Evita timeout de Hosting/Functions em chamadas longas de IA e preserva recuperacao apos reload |

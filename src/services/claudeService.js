@@ -249,5 +249,13 @@ export async function sendMessage(messages, systemInstructions, systemContext, i
   if (conversationId) payload.conversationId = conversationId;
   if (systemInstructions) payload.system = systemInstructions;
 
+  // Intent metadata persisted in pendingResponse so the async path (Cloud Tasks)
+  // preserves authorization across the queued -> worker -> polling boundary.
+  // Without this, usePendingRecovery cannot tell whether a replace_all of the
+  // plan was triggered by a legitimate "new_plan"/"generate_plan" click.
+  if (restMeta?.autoAction) payload.autoAction = restMeta.autoAction;
+  if (restMeta?.conversationType) payload.conversationType = restMeta.conversationType;
+  if (restMeta?.planDate) payload.planDate = restMeta.planDate;
+
   return post("/claude", payload);
 }

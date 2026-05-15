@@ -129,6 +129,54 @@ describe("planUpdateGuard", () => {
     });
   });
 
+  it("detecta heurística note-only quando o JSON do plano emite nota_coach (snake_case)", () => {
+    const currentPlano = JSON.stringify({
+      "13/05/2026": {
+        date: "13/05/2026",
+        meta: { kcal: 1450 },
+        grupos: [{ nome: "Almoço", itens: [{ id: "a1", texto: "Frango", checked: false }] }],
+        notaCoach: "Nota antiga",
+      },
+    });
+
+    const update = {
+      file: "plano",
+      action: "replace_all",
+      content: JSON.stringify({
+        date: "13/05/2026",
+        meta: { kcal: 1450 },
+        grupos: [{ nome: "Almoço", itens: [{ id: "a1", texto: "Frango", checked: false }] }],
+        nota_coach: "Nota nova (snake)",
+      }),
+    };
+
+    const guarded = lockPlanUpdateToDate(update, "13/05/2026", currentPlano);
+    expect(guarded.action).toBe("patch_coach_note");
+    expect(JSON.parse(guarded.content)).toEqual({
+      date: "13/05/2026",
+      nota: "Nota nova (snake)",
+    });
+  });
+
+  it("ao autorizar replace_all, normaliza nota_coach (snake_case) para notaCoach no payload", () => {
+    const update = {
+      file: "plano",
+      action: "replace_all",
+      content: JSON.stringify({
+        date: "13/05/2026",
+        meta: { kcal: 1450 },
+        grupos: [{ nome: "Almoço", itens: [] }],
+        nota_coach: "Foco hoje",
+      }),
+    };
+
+    const guarded = lockPlanUpdateToDate(update, "13/05/2026", "", { allowPlanReplaceAll: true });
+    expect(guarded).not.toBeNull();
+    const parsed = JSON.parse(guarded.content);
+    expect(parsed.notaCoach).toBe("Foco hoje");
+    expect(parsed).not.toHaveProperty("nota_coach");
+  });
+
   it("converte replace_all em append_coach_note quando a nota só cresce no final", () => {
     const currentPlano = JSON.stringify({
       "27/02/2026": {

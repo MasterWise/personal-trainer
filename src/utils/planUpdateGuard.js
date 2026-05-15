@@ -1,3 +1,5 @@
+import { normalizePlanDay } from "./planNormalize.js";
+
 function safeParseJson(value) {
   if (typeof value !== "string") return value;
   try {
@@ -5,6 +7,19 @@ function safeParseJson(value) {
   } catch {
     return null;
   }
+}
+
+// Surface silent drops via console.warn. Without this, a regression in the
+// recovery pipeline (e.g. hardcoded allowPlanReplaceAll:false) discards
+// legitimate updates with zero visible signal.
+function dropUpdate(reason, update) {
+  console.warn("[planUpdateGuard] update descartado", {
+    reason,
+    file: update?.file ?? null,
+    action: update?.action ?? null,
+    targetDate: update?.targetDate ?? null,
+  });
+  return null;
 }
 
 function isPlanDayObject(value) {
@@ -99,16 +114,19 @@ export function lockPlanUpdateToDate(update, planDateLock, currentPlanoStr = "",
   if (update.action === "replace_all") {
     const payload = safeParseJson(update.content);
     const dayPlan = pickPlanDayFromPayload(payload, planDateLock);
-    if (!dayPlan) return null;
+    if (!dayPlan) return dropUpdate("replace_all_payload_invalid_or_date_mismatch", update);
 
-    const normalizedPlan = {
+    // Normalize snake_case `nota_coach` -> `notaCoach` before comparing.
+    // Without this, the diff against the current plan becomes structural and
+    // the note-only heuristic below can no longer detect "only the note changed".
+    const normalizedPlan = normalizePlanDay({
       ...dayPlan,
       date: planDateLock,
-    };
+    });
 
     const currentPlanoDict = parsePlanoDict(currentPlanoStr, planDateLock);
     const currentPlanForDate = isPlanDayObject(currentPlanoDict?.[planDateLock])
-      ? currentPlanoDict[planDateLock]
+      ? normalizePlanDay(currentPlanoDict[planDateLock])
       : null;
     const coachNoteOnlyUpdate = buildCoachNoteUpdateFromReplaceAll({
       update,
@@ -118,7 +136,7 @@ export function lockPlanUpdateToDate(update, planDateLock, currentPlanoStr = "",
     });
     if (coachNoteOnlyUpdate) return coachNoteOnlyUpdate;
 
-    if (!allowPlanReplaceAll) return null;
+    if (!allowPlanReplaceAll) return dropUpdate("replace_all_not_authorized", update);
 
     return {
       ...update,
@@ -129,7 +147,7 @@ export function lockPlanUpdateToDate(update, planDateLock, currentPlanoStr = "",
 
   if (["append_item", "patch_item", "delete_item", "patch_coach_note", "append_coach_note"].includes(update.action)) {
     const payload = safeParseJson(update.content);
-    if (!payload || typeof payload !== "object") return null;
+    if (!payload || typeof payload !== "object") return dropUpdate("granular_payload_invalid", update);
 
     return {
       ...update,

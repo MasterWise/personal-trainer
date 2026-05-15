@@ -3,6 +3,7 @@ import { useAuth } from "./AuthContext.jsx";
 import { get, put, post } from "../services/api.js";
 import { rebuildHealthCacheDocs } from "../utils/healthModel.js";
 import { applyAiCheckedOwnership, applyAiOwnershipToPlanDay, canAiMutatePlanItem } from "../utils/planItemOwnership.js";
+import { normalizePlanDay, normalizeNotePayload } from "../utils/planNormalize.js";
 import { hashString } from "../utils/stringHash.js";
 
 const DocsContext = createContext(null);
@@ -269,6 +270,7 @@ function applySingleUpdateToDocs(docs, update, batchId) {
         return { nextDocs: docs, revision: null };
       }
       incomingObj = applyAiOwnershipToPlanDay(incomingObj);
+      incomingObj = normalizePlanDay(incomingObj);
       const targetDate = update.targetDate || incomingObj?.date || new Date().toLocaleDateString("pt-BR");
       const dict = parsePlanoDict(before, targetDate);
       dict[targetDate] = incomingObj;
@@ -384,11 +386,12 @@ function applySingleUpdateToDocs(docs, update, batchId) {
     treinosObj.registros.push(treinoData);
     newVal = JSON.stringify(treinosObj);
   } else if (update.action === "patch_coach_note" && stateKey === "plano") {
-    const noteData = typeof update.content === "string" ? parseJson(update.content, null) : update.content;
-    if (!noteData || typeof noteData !== "object") {
+    const rawNoteData = typeof update.content === "string" ? parseJson(update.content, null) : update.content;
+    if (!rawNoteData || typeof rawNoteData !== "object") {
       console.error("[DocsContext] Falha ao parsear update content:", { file: update.file, action: update.action });
       return { nextDocs: docs, revision: null };
     }
+    const noteData = normalizeNotePayload(rawNoteData);
     const targetDate = update.targetDate || noteData.date || new Date().toLocaleDateString("pt-BR");
     const dict = parsePlanoDict(before, targetDate);
     if (!dict[targetDate]) {
@@ -398,14 +401,15 @@ function applySingleUpdateToDocs(docs, update, batchId) {
         grupos: [],
       };
     }
-    dict[targetDate].notaCoach = String(noteData.nota || noteData.note || "");
+    dict[targetDate].notaCoach = String(noteData.nota || "");
     newVal = JSON.stringify(dict);
   } else if (update.action === "append_coach_note" && stateKey === "plano") {
-    const noteData = typeof update.content === "string" ? parseJson(update.content, null) : update.content;
-    if (!noteData || typeof noteData !== "object") {
+    const rawNoteData = typeof update.content === "string" ? parseJson(update.content, null) : update.content;
+    if (!rawNoteData || typeof rawNoteData !== "object") {
       console.error("[DocsContext] Falha ao parsear update content:", { file: update.file, action: update.action });
       return { nextDocs: docs, revision: null };
     }
+    const noteData = normalizeNotePayload(rawNoteData);
     const targetDate = update.targetDate || noteData.date || new Date().toLocaleDateString("pt-BR");
     const dict = parsePlanoDict(before, targetDate);
     if (!dict[targetDate]) {
@@ -416,7 +420,7 @@ function applySingleUpdateToDocs(docs, update, batchId) {
       };
     }
     const prevNote = String(dict[targetDate].notaCoach || "");
-    const appendNote = String(noteData.nota || noteData.note || "").trim();
+    const appendNote = String(noteData.nota || "").trim();
     dict[targetDate].notaCoach = [prevNote, appendNote].filter(Boolean).join("\n").trim();
     newVal = JSON.stringify(dict);
   }

@@ -23,6 +23,7 @@
 - **Solucao**: O backend (`routes/claude.js`) salva a resposta na tabela `pending_ai_responses` ANTES de devolver ao frontend. Se o frontend perder a resposta, recupera no proximo load.
 - **Tabela**: `pending_ai_responses` (migration 007) — id, user_id, conversation_id, cli_session_id, response_raw, status, expires_at (24h TTL).
 - **Modo Firebase**: `routes/firebaseClaude.js` cria `users/{uid}/pendingResponses/{responseId}` com `queued`, enfileira Cloud Task para a Function dedicada `claudeWorker` e retorna `202` rapidamente; `firebase/worker.js` processa a chamada ao gateway com OIDC, troca para `in_flight` e depois `pending`/`failed`.
+- **Intent persistido (hotfix 2026-05-15)**: o doc do pending grava `autoAction`/`conversationType`/`planDate` como campos top-level (gravados em `firebasePendingRepository.createQueued`, expostos em `list`/`get` como `auto_action`/`conversation_type`/`plan_date`). Frontend envia esses 3 campos no POST `/claude` (`src/services/claudeService.js`). `usePendingRecovery.processPendingItem` deriva `planDateLock`/`allowPlanReplaceAll` desses metadados — sem isso, o caminho async perde a intent do "Novo plano"/"Gerar plano" entre o POST e o polling e drops `replace_all` legítimo.
 - **Idempotencia Firebase**: o worker usa `responseId` como chave de task e `claimForProcessing` so chama IA quando o status esta `queued` ou `in_flight` antigo; retries nao devem duplicar chamada quando o item ja foi processado.
 - **Endpoints novos**: `GET /api/claude/pending`, `GET /api/claude/pending/:id`, `POST /api/claude/pending/:id/ack`.
 - **Frontend**: `src/hooks/usePendingRecovery.js` verifica pendentes no load, aplica mutations via `replayGuard.js` (pre-screening de idempotencia), e envia ack.
@@ -31,7 +32,8 @@
 - **In-flight state**: Lifecycle de 2 fases — `in_flight` (antes do gateway) → `pending` (apos resposta) → `processed` (apos ack) / `failed` (em caso de erro).
 - **Polling**: `usePendingRecovery` faz polling a cada 5s enquanto houver itens `in_flight`. Frontend mostra loading dots e bloqueia input via prop `hasInFlight`.
 - **conversationReady gate**: O hook espera `conversationReady` (alem de `docsReady` e `isAuthenticated`) para evitar race condition onde `currentConvoId` ainda e null.
-- **Testes**: `tests/routes/claude-pending.test.js`, `tests/utils/replay-guard.test.js`.
+- **Normalizacao de plano (hotfix 2026-05-15)**: `src/utils/planNormalize.js` expoe `normalizePlanDay(planDay)` (snake `nota_coach` -> camel `notaCoach`) e `normalizeNotePayload(noteData)` (alias `nota`/`note`/`nota_coach`). Aplicado em `DocsContext.applySingleUpdateToDocs` (replace_all + patch/append coach_note) e em `planUpdateGuard.lockPlanUpdateToDate` (antes de comparar e de retornar). Drops do guard agora passam por `dropUpdate(reason, update)` com `console.warn` estruturado (razões: `replace_all_payload_invalid_or_date_mismatch`, `replace_all_not_authorized`, `granular_payload_invalid`).
+- **Testes**: `tests/routes/claude-pending.test.js`, `tests/utils/replay-guard.test.js`, `tests/hooks/use-pending-recovery.test.jsx`, `tests/utils/plan-normalize.test.js`.
 
 ## Token budget per-user (Sprint 3)
 

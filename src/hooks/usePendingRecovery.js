@@ -73,11 +73,26 @@ export function usePendingRecovery({
       const parsed = parseClaudeStructuredResponse(rawResponse);
 
       const liveDocs = docsRef.current;
-      const meta = currentConvoMetaRef.current;
-      const planDateLock = meta?.type === "plan" ? (meta.planDate || null) : null;
+
+      // Derive intent from the *pending doc* (persisted at POST /claude time),
+      // not from currentConvoMeta (which can be stale if the user switched
+      // conversations between the POST and the async response arrival).
+      // The 3 fields (auto_action, conversation_type, plan_date) are written
+      // by firebase/repositories.js#createQueued and exposed by get().
+      const pendingMeta = {
+        conversationType: full.conversation_type ?? null,
+        planDate: full.plan_date ?? null,
+        autoAction: full.auto_action ?? null,
+      };
+      const fallbackMeta = currentConvoMetaRef.current;
+      const planDateLock = pendingMeta.conversationType === "plan"
+        ? (pendingMeta.planDate || null)
+        : (fallbackMeta?.type === "plan" ? (fallbackMeta.planDate || null) : null);
+      const allowPlanReplaceAll = pendingMeta.autoAction === "generate_plan"
+        || pendingMeta.autoAction === "new_plan";
 
       const preparedEntries = (parsed.updates || [])
-        .map((u) => lockPlanUpdateToDate(u, planDateLock, liveDocs.plano, { allowPlanReplaceAll: false }))
+        .map((u) => lockPlanUpdateToDate(u, planDateLock, liveDocs.plano, { allowPlanReplaceAll }))
         .filter(Boolean)
         .map((u) => enforcePlanUserCheckedPermission(u, liveDocs.plano))
         .map((entry) => {
