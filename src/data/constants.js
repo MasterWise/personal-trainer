@@ -379,6 +379,16 @@ export const FILE_TO_TAB = {
   medidas: "saude",
 };
 
+// Quando o destino é a aba "caderno", mapeia o file para o segmented control
+// interno do CadernoView (hist | mem | macro | micro). Usado pelo botão "Ver"
+// dos UpdateCard para que clicar em uma alteração de "memoria" leve direto
+// para a sub-aba "Anotações", e não para a sub-aba sticky anterior.
+export const FILE_TO_CADERNO_SUBTAB = {
+  historico: "hist",
+  memoria: "mem",
+  micro: "micro",
+};
+
 export const FILE_TO_STATE = {
   micro: "micro", memoria: "mem", historico: "hist",
   plano: "plano", progresso: "progresso", calorias: "cal", treinos: "treinos",

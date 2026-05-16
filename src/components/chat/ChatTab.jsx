@@ -337,6 +337,14 @@ export default function ChatTab({
       <div className="pt-chat__input-area">
         <textarea ref={taRef} value={input}
           onChange={e => { setInput(e.target.value); autoResizeTextarea(e.target); }}
+          onKeyDown={e => {
+            // Shift+Enter envia (atalho desktop). Enter puro mantém quebra de linha
+            // (importante no mobile, onde Enter no teclado virtual significa "nova linha").
+            if (e.key === "Enter" && e.shiftKey && !e.nativeEvent?.isComposing) {
+              e.preventDefault();
+              send();
+            }
+          }}
           placeholder={docsReady ? (inputPlaceholder || "Escreva aqui...") : "Carregando..."}
           disabled={!docsReady || readOnly || generating || hasInFlight} rows={1}
           className="pt-chat__textarea" />

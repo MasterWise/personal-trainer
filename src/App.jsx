@@ -341,6 +341,17 @@ export default function App() {
   } = useDocs();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("chat");
+  // Sub-aba do CadernoView (hist | mem | macro | micro). State no App para que
+  // o botão "Ver" dos UpdateCard possa pousar direto na sub-aba certa
+  // (ex.: card de "memoria" → sub-aba "Anotações"), e não na sticky anterior.
+  const [cadernoSubTab, setCadernoSubTab] = useState("hist");
+  // Wrapper polimórfico: setTab(tab) muda só a aba principal (compatível com TabBar
+  // e demais callers single-arg); setTab(tab, subTab) também ajusta a sub-aba do
+  // Caderno quando aplicável.
+  const goToTab = useCallback((tab, subTab) => {
+    setActiveTab(tab);
+    if (subTab && tab === "caderno") setCadernoSubTab(subTab);
+  }, []);
   const [planoDate, setPlanoDate] = useState(new Date().toLocaleDateString("pt-BR"));
   const [messages, setMessages] = useState([]);
   const [currentConvoId, setCurrentConvoId] = useState(null);
@@ -1064,7 +1075,7 @@ export default function App() {
             docsReady={docsReady}
             docsStatus={docsStatus}
             docsError={docsError}
-            setTab={setActiveTab}
+            setTab={goToTab}
             onGeneratePlan={generatePlan}
             generating={generating}
             planoDate={planoDate}
@@ -1113,7 +1124,16 @@ export default function App() {
           />
         )}
         {activeTab === "progresso" && <ProgressoView progresso={docs.progresso} />}
-        {activeTab === "caderno" && <CadernoView hist={docs.hist} mem={docs.mem} macro={docs.macro} micro={docs.micro} />}
+        {activeTab === "caderno" && (
+          <CadernoView
+            hist={docs.hist}
+            mem={docs.mem}
+            macro={docs.macro}
+            micro={docs.micro}
+            activeDoc={cadernoSubTab}
+            onActiveDocChange={setCadernoSubTab}
+          />
+        )}
         {activeTab === "perfil" && <PerfilTab perfil={docs.perfil} onSave={savePerfil} macro={docs.macro} micro={docs.micro} onSaveMacro={saveMacro} onSaveMicro={saveMicro} />}
         {activeTab === "logs" && <LogsView />}
       </>

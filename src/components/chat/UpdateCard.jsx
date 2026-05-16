@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTheme } from "../../contexts/ThemeContext.jsx";
-import { TAB_LABELS, TAB_ICONS, FILE_TO_TAB } from "../../data/constants.js";
+import { TAB_LABELS, TAB_ICONS, FILE_TO_TAB, FILE_TO_CADERNO_SUBTAB } from "../../data/constants.js";
 import { buildRevisionDiff } from "../../utils/revisionDiff.js";
 
 const DESCRIPTIONS = {
@@ -72,6 +72,7 @@ export default function UpdateCard({ revisions = [], setTab, onRevert }) {
   const label = TAB_LABELS[file] || file;
   const icon = TAB_ICONS[file] || "📄";
   const tab = FILE_TO_TAB[file];
+  const cadernoSubTab = tab === "caderno" ? FILE_TO_CADERNO_SUBTAB[file] : null;
   const desc = DESCRIPTIONS[file] || `${label} atualizado`;
   const actionLabel = getActionSummary(list);
   const total = list.length;
@@ -114,7 +115,7 @@ export default function UpdateCard({ revisions = [], setTab, onRevert }) {
         <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
           {tab && !allReverted && (
             <button
-              onClick={e => { e.stopPropagation(); setTab(tab); }}
+              onClick={e => { e.stopPropagation(); setTab(tab, cadernoSubTab); }}
               style={{
                 padding: "5px 10px", background: c.primary, color: "#FFF",
                 border: "none", borderRadius: "8px", fontFamily: theme.font,

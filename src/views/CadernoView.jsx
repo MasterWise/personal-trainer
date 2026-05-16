@@ -33,10 +33,19 @@ const DOCS = [
   },
 ];
 
-export default function CadernoView({ hist, mem, macro, micro }) {
+export default function CadernoView({ hist, mem, macro, micro, activeDoc: activeDocProp, onActiveDocChange }) {
   const { theme } = useTheme();
   const c = theme.colors;
-  const [activeDoc, setActiveDoc] = useState("hist");
+  // Controlled when activeDocProp/onActiveDocChange estão presentes (vem do App
+  // para que o "Ver" dos UpdateCard pouse na sub-aba certa). Mantém fallback
+  // interno para uso direto em testes ou em qualquer outro ponto que renderize
+  // o componente sem prop.
+  const [internalActiveDoc, setInternalActiveDoc] = useState("hist");
+  const activeDoc = activeDocProp || internalActiveDoc;
+  const setActiveDoc = (key) => {
+    if (typeof onActiveDocChange === "function") onActiveDocChange(key);
+    else setInternalActiveDoc(key);
+  };
   const bottomRef = useRef(null);
   const scrollRef = useRef(null);
 
