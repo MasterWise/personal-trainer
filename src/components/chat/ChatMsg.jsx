@@ -50,9 +50,14 @@ export default function ChatMsg({ msg, msgIndex, setTab, onRevert }) {
         )}
       </div>
 
-      {/* Cards de plano: sempre visíveis (rich card, intacto). */}
+      {/* Cards de plano: sempre visíveis (rich card, intacto).
+          paddingLeft: 38px alinha o card com a borda esquerda da bolha,
+          replicando o offset do avatar+gap (.pt-chat__avatar width=30px +
+          .pt-chat__row gap=8px). Isso mantém o alinhamento consistente
+          quer haja plano só, secundários só, ou os dois juntos.
+          paddingRight: 8px preserva o breathing original. */}
       {planoGroups.length > 0 && (
-        <div style={{ padding: "0 8px", display: "flex", flexDirection: "column", gap: "4px" }}>
+        <div style={{ paddingLeft: "38px", paddingRight: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
           {planoGroups.map((group, gi) => (
             <UpdateCard
               key={`${msgIndex}-plano-${group.key}-${gi}`}
@@ -65,9 +70,12 @@ export default function ChatMsg({ msg, msgIndex, setTab, onRevert }) {
       )}
 
       {/* Cards secundários: só quando a badge inline está expandida.
-          Aparecem ABAIXO do plano para não desestabilizar a posição dele. */}
+          Mesmo offset horizontal do container de plano, garantindo que
+          cards apareçam alinhados com a bolha mesmo quando NÃO há plano
+          (caso comum de turnos só com anotação/perfil). Sem marginTop:
+          o gap natural de .pt-chat__messages (14px) cuida do espaçamento. */}
       {secondaryExpanded && secondaryGroups.length > 0 && (
-        <div style={{ padding: "0 8px", display: "flex", flexDirection: "column", gap: "4px", marginTop: planoGroups.length > 0 ? "4px" : "0" }}>
+        <div style={{ paddingLeft: "38px", paddingRight: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
           {secondaryGroups.map((group, gi) => (
             <UpdateCard
               key={`${msgIndex}-secondary-${group.key}-${gi}`}
