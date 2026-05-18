@@ -89,7 +89,8 @@
 - Backend isolado: `npm run server`
 - Lint: `npm run lint`
 - Testes: `npm run test:run`
-- Lifecycle local: `node manage.mjs start|stop|restart|status`
+- Lifecycle local (prod-like, single-process sem HMR): `node manage.mjs start|stop|restart|status`
+- Lifecycle via services-manager (dev, com HMR): `node ../../services-manager/manager.mjs start personal-trainer` — sobe `server.js` com `NODE_ENV=development`, ativando Vite middleware embutido. Acesso: `http://localhost:3400/pt/`. Build de producao e pulado nesse modo.
 - Health checks:
   - `curl http://localhost:3400/api/health`
   - `curl http://localhost:8080/api/pt/health`
