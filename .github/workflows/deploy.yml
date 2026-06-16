@@ -53,7 +53,54 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+
+      # .env.production.local e git-ignored e contem as credenciais publicas
+      # do Firebase Web App (VITE_FIREBASE_API_KEY, AUTH_DOMAIN, etc).
+      # Sem isso o bundle Vite sai sem firebaseConfig, hasFirebaseConfig fica
+      # false e a UI esconde o login Google mesmo com o backend em Firebase.
+      #
+      # Secret PT_FRONTEND_ENV deve ser repo-level (Settings > Secrets >
+      # Actions), nao environment-scoped, porque o job build roda antes do gate
+      # de approval do environment production.
+      - name: Recriar .env.production.local a partir do secret
+        env:
+          ENV_CONTENT: ${{ secrets.PT_FRONTEND_ENV }}
+        run: |
+          if [ -z "$ENV_CONTENT" ]; then
+            echo "::error::Secret PT_FRONTEND_ENV nao configurado (Settings > Secrets > Actions). Sem isso o bundle sai sem firebaseConfig e o login Google some em producao."
+            exit 1
+          fi
+          printf '%s' "$ENV_CONTENT" | tr -d '\r' > .env.production.local
+          grep -q '^VITE_FIREBASE_API_KEY=' .env.production.local \
+            || (echo "::error::VITE_FIREBASE_API_KEY ausente no secret PT_FRONTEND_ENV"; exit 1)
+          grep -q '^VITE_FIREBASE_AUTH_DOMAIN=' .env.production.local \
+            || (echo "::error::VITE_FIREBASE_AUTH_DOMAIN ausente no secret PT_FRONTEND_ENV"; exit 1)
+          grep -q '^VITE_FIREBASE_PROJECT_ID=' .env.production.local \
+            || (echo "::error::VITE_FIREBASE_PROJECT_ID ausente no secret PT_FRONTEND_ENV"; exit 1)
+          grep -q '^VITE_FIREBASE_APP_ID=' .env.production.local \
+            || (echo "::error::VITE_FIREBASE_APP_ID ausente no secret PT_FRONTEND_ENV"; exit 1)
+          if grep -q '^VITE_FIREBASE_AUTH_EMULATOR_HOST=.\+' .env.production.local; then
+            echo "::error::VITE_FIREBASE_AUTH_EMULATOR_HOST nao deve ter valor em prod. Remova do secret PT_FRONTEND_ENV."
+            exit 1
+          fi
+
       - run: npm run build
+
+      # Sanity check pos-build: o smoke atual valida o backend, mas nao pega
+      # frontend sem firebaseConfig. Este guard impede publicar login quebrado.
+      - name: Validar bundle contem firebaseConfig
+        run: |
+          BUNDLE=$(ls dist/assets/index-*.js | head -1)
+          if [ -z "$BUNDLE" ]; then
+            echo "::error::Bundle dist/assets/index-*.js nao encontrado"
+            exit 1
+          fi
+          if ! grep -q 'firebaseapp\.com' "$BUNDLE"; then
+            echo "::error::Bundle $BUNDLE nao contem 'firebaseapp.com'. Build saiu sem firebaseConfig — VITE_FIREBASE_* nao foram aplicadas."
+            exit 1
+          fi
+          echo "OK: bundle contem firebaseConfig"
+
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
