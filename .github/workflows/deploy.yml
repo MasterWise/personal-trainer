@@ -130,7 +130,7 @@ jobs:
           name: dist
           path: dist/
       - run: npm ci --omit=dev
-      - name: Deploy seletivo (functions do PT + hosting + firestore)
+      - name: Deploy seletivo (functions do PT + hosting + firestore + storage)
         env:
           # Nota: firebase-tools v13 deprecou login tokens em favor de
           # GOOGLE_APPLICATION_CREDENTIALS apontando para um Service
@@ -144,7 +144,7 @@ jobs:
             exit 1
           fi
           npx firebase-tools@^13 deploy \
-            --only "hosting,firestore,functions:api,functions:claudeWorker" \
+            --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
             --project=mw-personal-trainer \
             --token "$FIREBASE_TOKEN" \
             --non-interactive

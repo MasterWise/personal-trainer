@@ -597,7 +597,7 @@ export default function App() {
 
     // Acknowledge the pending response so it's not replayed on reconnect
     if (responseId) {
-      post("/claude/pending/" + responseId + "/ack", {}).catch(() => {});
+      post("/claude/pending/" + responseId + "/ack", {}, { requestKind: "background" }).catch(() => {});
     }
 
     return {

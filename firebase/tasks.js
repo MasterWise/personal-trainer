@@ -23,17 +23,35 @@ function requireTaskEnv() {
   return { project, location, queue, workerUrl, serviceAccountEmail };
 }
 
-export async function enqueueClaudeTask({ uid, responseId }) {
-  if (process.env.TASKS_EMULATE_INLINE === "true" || process.env.FIREBASE_TASKS_EMULATE_INLINE === "true") {
-    queueMicrotask(() => {
-      processClaudeTask({ uid, responseId }).catch((error) => {
-        console.error("[Cloud Tasks Inline]", error);
-      });
+function envFlag(name) {
+  return String(process.env[name] || "").trim().toLowerCase() === "true";
+}
+
+function isFirebaseFunctionsEmulator() {
+  return envFlag("FUNCTIONS_EMULATOR")
+    || Boolean(process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST);
+}
+
+function enqueueInlineClaudeTask({ uid, responseId }) {
+  queueMicrotask(() => {
+    processClaudeTask({ uid, responseId }).catch((error) => {
+      console.error("[Cloud Tasks Inline]", error);
     });
-    return { mode: "inline", taskName: null };
+  });
+  return { mode: "inline", taskName: null };
+}
+
+export async function enqueueClaudeTask({ uid, responseId }) {
+  const config = requireTaskEnv();
+
+  if (envFlag("TASKS_EMULATE_INLINE") || envFlag("FIREBASE_TASKS_EMULATE_INLINE")) {
+    return enqueueInlineClaudeTask({ uid, responseId });
   }
 
-  const config = requireTaskEnv();
+  if (!config && isFirebaseFunctionsEmulator()) {
+    return enqueueInlineClaudeTask({ uid, responseId });
+  }
+
   if (!config) {
     if (process.env.CLOUD_TASKS_ALLOW_DISABLED === "true") {
       return { mode: "disabled", taskName: null };

@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { authMiddleware } from "../middleware/auth.js";
 import { createClaudeRateLimit } from "../middleware/security.js";
 import { stmts } from "../db/index.js";
+import { cleanupMediaRefsForPayload, resolveGatewayPayloadMedia, sanitizeMessagesForStorage, validateMediaPolicy } from "../firebase/media.js";
 
 const AI_GATEWAY_URL = process.env.AI_GATEWAY_URL || "http://localhost:3500";
 const AI_MODEL = process.env.AI_MODEL || "claude-cli-sonnet";
@@ -11,7 +12,7 @@ const MAX_INPUT_TOKENS = parseInt(process.env.MAX_INPUT_TOKENS || "0", 10) || nu
 const MAX_OUTPUT_TOKENS = parseInt(process.env.MAX_OUTPUT_TOKENS || "0", 10) || null;
 const ALLOW_DEBUG_AI_LOGS = process.env.ALLOW_DEBUG_AI_LOGS === "true";
 
-const REDACT_KEYS = new Set(["password", "authorization", "Authorization", "_sessionId", "secret", "token", "api_key", "apiKey", "cookie"]);
+const REDACT_KEYS = new Set(["password", "authorization", "Authorization", "_sessionId", "secret", "token", "api_key", "apiKey", "cookie", "data", "dataUrl", "inlineData", "fileData", "file_uri", "fileUri", "gsUri", "bucket", "objectName"]);
 
 function redactSensitive(value) {
   return JSON.stringify(value, (key, current) => {
@@ -30,6 +31,8 @@ export default function claudeRoutes() {
     const startTime = Date.now();
     const debugMode = req.headers["x-debug-log"] === "true";
     const allowDetailedDebug = debugMode && (process.env.NODE_ENV !== "production" || ALLOW_DEBUG_AI_LOGS);
+    let inFlightId = null;
+    let gatewayPayload = null;
 
     try {
       const { system, messages, output_config, _sessionId, interaction_context, conversationId } = req.body;
@@ -40,9 +43,10 @@ export default function claudeRoutes() {
       if (messages.length > 100) {
         return res.status(400).json({ error: "Limite de 100 mensagens por request" });
       }
+      validateMediaPolicy(messages);
 
       // Build gateway payload
-      const gatewayPayload = {
+      gatewayPayload = {
         app: "personal-trainer",
         model: AI_MODEL,
         system,
@@ -65,9 +69,10 @@ export default function claudeRoutes() {
 
       // ── Response Inbox: register in-flight request BEFORE calling gateway ──
       // This lets the frontend know a response is being generated (survives page refresh)
-      const inFlightId = crypto.randomUUID();
+      inFlightId = crypto.randomUUID();
       const inFlightNow = new Date();
-      const lastUserMsg = [...messages].reverse().find(m => m?.role === "user");
+      const sanitizedMessages = sanitizeMessagesForStorage(messages);
+      const lastUserMsg = [...sanitizedMessages].reverse().find(m => m?.role === "user");
       try {
         stmts.insertPendingResponse.run(
           inFlightId, req.user.id, conversationId || null, _sessionId || null,
@@ -79,6 +84,8 @@ export default function claudeRoutes() {
       } catch (e) {
         console.error("[InFlight Save Error]", e);
       }
+
+      gatewayPayload = await resolveGatewayPayloadMedia(req.user.id, gatewayPayload);
 
       let response = await fetch(`${AI_GATEWAY_URL}/api/chat`, {
         method: "POST",
@@ -135,6 +142,7 @@ export default function claudeRoutes() {
           );
         } catch { /* ignore */ }
 
+        await cleanupMediaRefsForPayload(req.user.id, gatewayPayload, "gateway_failed");
         return res.status(response.status).json(data);
       }
 
@@ -207,6 +215,7 @@ export default function claudeRoutes() {
           JSON.stringify(data), pendingReplyText, pendingUpdatesJson,
           inFlightId, req.user.id
         );
+        await cleanupMediaRefsForPayload(req.user.id, gatewayPayload, "processed");
       } catch (e) {
         console.error("[Pending Complete Error]", e);
       }
@@ -214,6 +223,7 @@ export default function claudeRoutes() {
       res.json({ ...data, _responseId: inFlightId });
     } catch (error) {
       console.error("[Server Error]", error);
+      const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : null;
 
       if (allowDetailedDebug && req.user?.id) {
         try {
@@ -230,13 +240,31 @@ export default function claudeRoutes() {
       }
 
       // Mark in-flight request as failed so frontend stops showing loading
-      try {
-        stmts.failPendingResponse.run(
-          JSON.stringify({ error: error.message }),
-          new Date().toISOString(),
-          inFlightId, req.user.id
-        );
-      } catch { /* ignore cleanup error */ }
+      if (inFlightId && req.user?.id) {
+        try {
+          stmts.failPendingResponse.run(
+            JSON.stringify({ error: error.message, code: error.code || null }),
+            new Date().toISOString(),
+            inFlightId, req.user.id
+          );
+        } catch { /* ignore cleanup error */ }
+      }
+
+      const cleanupPayload = gatewayPayload || (String(error?.code || "").startsWith("MEDIA_") ? { messages: req.body?.messages || [] } : null);
+      if (cleanupPayload && req.user?.id) {
+        try {
+          await cleanupMediaRefsForPayload(req.user.id, cleanupPayload, "request_failed");
+        } catch (cleanupError) {
+          console.error("[Media Cleanup Error]", cleanupError);
+        }
+      }
+
+      if (statusCode) {
+        return res.status(statusCode).json({
+          error: error.message,
+          code: error.code || undefined,
+        });
+      }
 
       // Timeout from AbortSignal.timeout()
       if (error?.name === "TimeoutError" || error?.name === "AbortError") {

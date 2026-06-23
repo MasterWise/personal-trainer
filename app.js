@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import { createGlobalRateLimit, createLoginRateLimit } from "./middleware/security.js";
+import { attachRequestTrafficLogger } from "./middleware/requestTraffic.js";
 import { isFirebaseBackendEnabled } from "./config/backend.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -63,6 +64,7 @@ export async function createApp(options = {}) {
           styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
           imgSrc: ["'self'", "data:", "blob:"],
+          mediaSrc: ["'self'", "blob:"],
           connectSrc: ["'self'", "https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com"],
           manifestSrc: ["'self'"],
           workerSrc: ["'self'", "blob:"],
@@ -94,7 +96,8 @@ export async function createApp(options = {}) {
       },
     })
   );
-  app.use(express.json({ limit: "10mb" }));
+  app.use(express.json({ limit: "12mb" }));
+  app.use(attachRequestTrafficLogger);
 
   // CSRF protection: reject non-JSON content types on mutations with a body.
   // Allows empty-body POSTs (e.g., logout, reset) to pass through.
@@ -127,11 +130,13 @@ export async function createApp(options = {}) {
     const { default: healthRoutes } = await import("./routes/firebaseHealth.js");
     const { default: authRoutes } = await import("./routes/firebaseAuth.js");
     const { default: claudeRoutes } = await import("./routes/firebaseClaude.js");
+    const { default: mediaRoutes } = await import("./routes/firebaseMedia.js");
     const { default: documentRoutes } = await import("./routes/firebaseDocuments.js");
     const { default: conversationRoutes } = await import("./routes/firebaseConversations.js");
     app.use(healthRoutes());
     app.use(authRoutes());
     app.use(claudeRoutes());
+    app.use(mediaRoutes());
     app.use(documentRoutes());
     app.use(conversationRoutes());
   } else {
@@ -140,11 +145,13 @@ export async function createApp(options = {}) {
     const { default: healthRoutes } = await import("./routes/health.js");
     const { default: authRoutes } = await import("./routes/auth.js");
     const { default: claudeRoutes } = await import("./routes/claude.js");
+    const { default: mediaRoutes } = await import("./routes/media.js");
     const { default: documentRoutes } = await import("./routes/documents.js");
     const { default: conversationRoutes } = await import("./routes/conversations.js");
     app.use(healthRoutes());
     app.use(authRoutes());
     app.use(claudeRoutes());
+    app.use(mediaRoutes());
     app.use(documentRoutes());
     app.use(conversationRoutes());
   }

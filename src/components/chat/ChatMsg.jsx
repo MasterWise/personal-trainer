@@ -8,6 +8,7 @@ import { partitionPlanoVsSecondary } from "../../utils/secondaryUpdates.js";
 export default function ChatMsg({ msg, msgIndex, setTab, onRevert }) {
   const isUser = msg.role === "user";
   const updates = msg.appliedUpdates || [];
+  const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
   const groupedUpdates = groupRevisionsByType(updates);
   const { planoGroups, secondaryGroups } = partitionPlanoVsSecondary(groupedUpdates);
 
@@ -44,6 +45,20 @@ export default function ChatMsg({ msg, msgIndex, setTab, onRevert }) {
               />
             ) : null}
           />
+          {isUser && attachments.length > 0 && (
+            <div className="pt-chat__message-attachments">
+              {attachments.map((attachment, index) => (
+                <div key={`${attachment.mediaRef || index}`} className="pt-chat__message-attachment">
+                  {attachment.kind === "image" && attachment.previewUrl ? (
+                    <img src={attachment.previewUrl} alt="" className="pt-chat__message-attachment-thumb" />
+                  ) : (
+                    <span className="pt-chat__message-attachment-icon">{attachment.kind === "audio" ? "REC" : "IMG"}</span>
+                  )}
+                  <span>{attachment.label || (attachment.kind === "audio" ? "Audio" : "Imagem")}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         {isUser && (
           <div className="pt-chat__avatar" style={{ background: "linear-gradient(135deg,#C4956A,#A07050)" }}>🌸</div>

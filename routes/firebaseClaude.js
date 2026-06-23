@@ -5,6 +5,13 @@ import { buildGatewayPayload } from "../firebase/payload.js";
 import { enqueueClaudeTask } from "../firebase/tasks.js";
 import { firebaseAiLogsRepository, firebasePendingRepository } from "../firebase/repositories.js";
 import { checkBudget, getStatus as getBudgetStatus, resetBudget } from "../firebase/tokenBudget.js";
+import {
+  cleanupMediaRefsForPayload,
+  estimateMediaUsageFromMessages,
+  sanitizeMessagesForStorage,
+  validateMediaPolicy,
+} from "../firebase/media.js";
+
 
 export default function firebaseClaudeRoutes() {
   const router = Router();
@@ -19,19 +26,22 @@ export default function firebaseClaudeRoutes() {
       if (messages.length > 100) {
         return res.status(400).json({ error: "Limite de 100 mensagens por request" });
       }
+      validateMediaPolicy(messages);
+      const mediaUsageEstimate = estimateMediaUsageFromMessages(messages);
 
       // Token budget pre-check (hard cap diario + mensal por usuario)
       try {
-        const budget = await checkBudget(req.user.uid);
+        const budget = await checkBudget(req.user.uid, mediaUsageEstimate);
         if (!budget.allowed) {
+          await cleanupMediaRefsForPayload(req.user.uid, { messages }, "budget_rejected");
           return res.status(429).json({
-            error: budget.reason === "monthly"
+            error: budget.reason === "monthly" || budget.reason === "monthly_cost"
               ? "Voce atingiu o limite mensal de uso da IA. Reseta no inicio do proximo mes."
               : "Voce atingiu o limite diario de uso da IA. Reseta as 00:00 UTC.",
             code: "TOKEN_BUDGET_EXCEEDED",
             scope: budget.reason,
             resetAt: budget.resetAt,
-            usage: { dailyUsed: budget.dailyUsed, monthlyUsed: budget.monthlyUsed, dailyCap: budget.dailyCap, monthlyCap: budget.monthlyCap },
+            usage: { dailyUsed: budget.dailyUsed, monthlyUsed: budget.monthlyUsed, dailyCap: budget.dailyCap, monthlyCap: budget.monthlyCap, dailyCostUsedMicros: budget.dailyCostUsedMicros, monthlyCostUsedMicros: budget.monthlyCostUsedMicros, dailyCostCapMicros: budget.dailyCostCapMicros, monthlyCostCapMicros: budget.monthlyCostCapMicros },
           });
         }
       } catch (budgetErr) {
@@ -48,11 +58,14 @@ export default function firebaseClaudeRoutes() {
       }
 
       const gatewayPayload = buildGatewayPayload(req.body);
+      const sanitizedMessages = sanitizeMessagesForStorage(messages);
+      const sanitizedBody = { ...req.body, messages: sanitizedMessages };
+      const sanitizedGatewayPayload = { ...gatewayPayload, messages: sanitizeMessagesForStorage(gatewayPayload.messages) };
       const pending = await firebasePendingRepository.createQueued(req.user.uid, {
-        messages,
+        messages: sanitizedMessages,
         conversationId,
         cliSessionId: _sessionId || null,
-        requestPayload: { body: req.body, gatewayPayload },
+        requestPayload: { body: sanitizedBody, gatewayPayload: sanitizedGatewayPayload, mediaUsageEstimate },
         autoAction: typeof req.body?.autoAction === "string" ? req.body.autoAction : null,
         conversationType: typeof req.body?.conversationType === "string" ? req.body.conversationType : null,
         planDate: typeof req.body?.planDate === "string" ? req.body.planDate : null,
@@ -63,6 +76,7 @@ export default function firebaseClaudeRoutes() {
         task = await enqueueClaudeTask({ uid: req.user.uid, responseId: pending.responseId });
       } catch (error) {
         await firebasePendingRepository.fail(req.user.uid, pending.responseId, { error: error.message });
+        await cleanupMediaRefsForPayload(req.user.uid, gatewayPayload, "enqueue_failed");
         throw error;
       }
 
@@ -73,8 +87,12 @@ export default function firebaseClaudeRoutes() {
         taskMode: task.mode,
       });
     } catch (error) {
-      console.error("[Firebase Claude][POST]", error);
-      res.status(500).json({ error: "Erro ao enfileirar resposta da IA", message: error.message });
+      const status = error.statusCode || 500;
+      if (String(error?.code || "").startsWith("MEDIA_") && Array.isArray(req.body?.messages)) {
+        await cleanupMediaRefsForPayload(req.user.uid, { messages: req.body.messages }, "request_rejected");
+      }
+      if (status >= 500) console.error("[Firebase Claude][POST]", error);
+      res.status(status).json({ error: status >= 500 ? "Erro ao enfileirar resposta da IA" : error.message, message: error.message, code: error.code || undefined });
     }
   });
 

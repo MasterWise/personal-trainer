@@ -1,4 +1,4 @@
-const REDACT_KEYS = new Set(["password", "authorization", "Authorization", "_sessionId", "secret", "token", "api_key", "apiKey", "cookie"]);
+const REDACT_KEYS = new Set(["password", "authorization", "Authorization", "_sessionId", "secret", "token", "api_key", "apiKey", "cookie", "data", "dataUrl", "inlineData", "fileData", "file_uri", "fileUri", "gsUri", "bucket", "objectName"]);
 const FIRESTORE_SAFE_TEXT_LIMIT = 850000;
 
 export function redactSensitive(value) {

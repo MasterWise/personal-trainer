@@ -30,6 +30,14 @@ async function loadAuthClient() {
       const existingApp = appSdk.getApps().find((app) => app.name === "[DEFAULT]");
       const app = existingApp || appSdk.initializeApp(firebaseConfig);
       const auth = authSdk.getAuth(app);
+      const authEmulatorHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST;
+      if (authEmulatorHost && !auth.__ptEmulatorConnected) {
+        const url = String(authEmulatorHost).startsWith("http")
+          ? authEmulatorHost
+          : `http://${authEmulatorHost}`;
+        authSdk.connectAuthEmulator(auth, url, { disableWarnings: true });
+        auth.__ptEmulatorConnected = true;
+      }
       // Force LOCAL persistence (IndexedDB / localStorage) so the user stays
       // logged in across tab closes and browser restarts. The Firebase default
       // is already LOCAL, but in some popup/iframe scenarios it silently falls

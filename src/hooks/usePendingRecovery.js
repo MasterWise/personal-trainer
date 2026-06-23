@@ -64,7 +64,7 @@ export function usePendingRecovery({
   // Process a single pending response (replay mutations + add message)
   const processPendingItem = useCallback(async (item) => {
     try {
-      const full = await get("/claude/pending/" + item.id);
+      const full = await get("/claude/pending/" + item.id, { requestKind: "background" });
       if (!full?.response_raw) return false;
 
       const rawResponse = typeof full.response_raw === "string"
@@ -136,12 +136,12 @@ export function usePendingRecovery({
       }
 
       // Acknowledge
-      await post("/claude/pending/" + item.id + "/ack", {}).catch(() => {});
+      await post("/claude/pending/" + item.id + "/ack", {}, { requestKind: "background" }).catch(() => {});
       sessionCreatedRef.current.delete(item.id);
       return { ok: true, wasCreatedHere };
     } catch (e) {
       console.error("[PendingRecovery] Error processing item:", item.id, e);
-      await post("/claude/pending/" + item.id + "/ack", {}).catch(() => {});
+      await post("/claude/pending/" + item.id + "/ack", {}, { requestKind: "background" }).catch(() => {});
       sessionCreatedRef.current.delete(item.id);
       return { ok: false, wasCreatedHere: sessionCreatedRef.current.has(item.id) };
     }
@@ -153,7 +153,7 @@ export function usePendingRecovery({
 
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const res = await get("/claude/pending");
+        const res = await get("/claude/pending", { requestKind: "background" });
         const items = res?.items || [];
 
         if (items.length === 0) {
@@ -232,7 +232,7 @@ export function usePendingRecovery({
 
     async function recoverPending() {
       try {
-        const res = await get("/claude/pending");
+        const res = await get("/claude/pending", { requestKind: "background" });
         const items = res?.items || [];
         if (items.length === 0 || cancelled) return;
 

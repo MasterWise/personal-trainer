@@ -2,6 +2,7 @@ import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import { firebaseAiLogsRepository, firebasePendingRepository } from "./repositories.js";
 import { buildGatewayPayload, extractStructuredResponse, redactSensitive } from "./payload.js";
 import { debit as debitTokenBudget } from "./tokenBudget.js";
+import { cleanupMediaRefsForPayload, estimateMediaUsageFromMessages, getMediaCostRates, resolveGatewayPayloadMedia } from "./media.js";
 
 const authClient = new OAuth2Client();
 const gatewayAuth = new GoogleAuth();
@@ -26,6 +27,23 @@ function parsePositiveMs(value, fallback) {
 
 function getGatewayTimeoutMs() {
   return parsePositiveMs(process.env.GATEWAY_TIMEOUT_MS, DEFAULT_GATEWAY_TIMEOUT_MS);
+}
+
+function getEnvFloat(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || raw === "") return fallback;
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function getCostRates() {
+  const mediaRates = getMediaCostRates();
+  return {
+    textInputMicrosPerToken: getEnvFloat("COST_TEXT_INPUT_MICROS_PER_TOKEN", 0.5),
+    outputMicrosPerToken: getEnvFloat("COST_OUTPUT_MICROS_PER_TOKEN", 3),
+    imageInputMicrosPerToken: mediaRates.imageInputMicrosPerToken,
+    audioInputMicrosPerToken: mediaRates.audioInputMicrosPerToken,
+  };
 }
 
 function isTransientGatewayError(error) {
@@ -113,11 +131,14 @@ export async function processClaudeTask({ uid, responseId }) {
 
   const pending = claim.item;
   const queuedPayload = parseQueuedPayload(pending);
-  const gatewayPayload = queuedPayload.gatewayPayload || buildGatewayPayload(queuedPayload.body || {});
+  const unresolvedGatewayPayload = queuedPayload.gatewayPayload || buildGatewayPayload(queuedPayload.body || {});
+  const mediaUsageEstimate = queuedPayload.mediaUsageEstimate || estimateMediaUsageFromMessages(unresolvedGatewayPayload.messages || []);
+  let gatewayPayload = unresolvedGatewayPayload;
   const startTime = Date.now();
   const timeoutMs = getGatewayTimeoutMs();
 
   try {
+    gatewayPayload = await resolveGatewayPayloadMedia(uid, unresolvedGatewayPayload);
     let response = await postGatewayChat(gatewayPayload, timeoutMs);
 
     if (response.status === 410 && !gatewayPayload._sessionExpiredRetry) {
@@ -135,6 +156,7 @@ export async function processClaudeTask({ uid, responseId }) {
 
     if (!response.ok) {
       await firebasePendingRepository.fail(uid, responseId, { error: data.error || `HTTP ${response.status}`, data });
+      await cleanupMediaRefsForPayload(uid, gatewayPayload, "gateway_failed");
       await firebaseAiLogsRepository.insert(uid, {
         messagesSent: redactSensitive(gatewayPayload.messages || []),
         messagesCount: gatewayPayload.messages?.length || 0,
@@ -157,6 +179,14 @@ export async function processClaudeTask({ uid, responseId }) {
     const inputTokens = data.usage?.input_tokens || 0;
     const outputTokens = data.usage?.output_tokens || 0;
     const cachedTokens = (data.usage?.cache_creation_input_tokens || 0) + (data.usage?.cache_read_input_tokens || 0);
+    const textInputTokens = Math.max(0, inputTokens - (mediaUsageEstimate.mediaInputTokens || 0));
+    const costRates = getCostRates();
+    const estimatedCostMicros = Math.ceil(
+      textInputTokens * costRates.textInputMicrosPerToken
+      + (mediaUsageEstimate.imageTokens || 0) * costRates.imageInputMicrosPerToken
+      + (mediaUsageEstimate.audioTokens || 0) * costRates.audioInputMicrosPerToken
+      + outputTokens * costRates.outputMicrosPerToken
+    );
 
     await firebaseAiLogsRepository.insert(uid, {
       systemPrompt: gatewayPayload.system || null,
@@ -171,6 +201,9 @@ export async function processClaudeTask({ uid, responseId }) {
       inputTokens: inputTokens || null,
       outputTokens: outputTokens || null,
       cachedTokens: cachedTokens || null,
+      imageTokens: mediaUsageEstimate.imageTokens || null,
+      audioTokens: mediaUsageEstimate.audioTokens || null,
+      estimatedCostMicros: estimatedCostMicros || null,
       totalTokens: (inputTokens + outputTokens) || null,
       durationMs,
       success: true,
@@ -180,18 +213,37 @@ export async function processClaudeTask({ uid, responseId }) {
     // Debita token budget (best-effort, nao bloqueia retorno em caso de
     // erro de Firestore — o ai_log ja foi inserido como fonte de verdade).
     try {
-      await debitTokenBudget(uid, { inputTokens, outputTokens, cachedTokens });
+      await debitTokenBudget(uid, {
+        inputTokens,
+        outputTokens,
+        cachedTokens,
+        imageTokens: mediaUsageEstimate.imageTokens || 0,
+        audioTokens: mediaUsageEstimate.audioTokens || 0,
+        imageCount: mediaUsageEstimate.imageCount || 0,
+        audioSeconds: mediaUsageEstimate.audioSeconds || 0,
+        estimatedCostMicros,
+      });
     } catch (budgetErr) {
       console.warn("[TokenBudget] debit falhou (uid=" + uid + "):", budgetErr?.message || budgetErr);
     }
 
+    await cleanupMediaRefsForPayload(uid, gatewayPayload, "processed");
+
     return { ok: true, status: "pending" };
   } catch (error) {
+    if (String(error?.code || "").startsWith("MEDIA_")) {
+      await firebasePendingRepository.fail(uid, responseId, { error: error.message, code: error.code });
+      await cleanupMediaRefsForPayload(uid, gatewayPayload, "media_failed");
+      return { ok: false, status: "failed", code: error.code };
+    }
     if (isTransientGatewayError(error)) {
       console.warn("[Claude Worker] erro transitorio no gateway; mantendo in_flight para retry:", error.message);
       throw error;
     }
     await firebasePendingRepository.fail(uid, responseId, { error: error.message });
+    if (typeof gatewayPayload !== "undefined") {
+      await cleanupMediaRefsForPayload(uid, gatewayPayload, "worker_failed");
+    }
     throw error;
   }
 }

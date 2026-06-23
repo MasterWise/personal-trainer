@@ -8,6 +8,7 @@ App de coaching pessoal com IA para rotina alimentar, plano diario, historico de
 - Frontend servido em `/pt/`.
 - API exposta em `/api/pt/` no proxy e em `/api/` no backend local.
 - Integracao de IA feita exclusivamente via `ai-gateway`.
+- Chat suporta anexos de imagem/camera e audio por `mediaRef`, sem persistir base64 no historico.
 - Modo Firebase em implementacao: `FIREBASE_BACKEND=true` troca SQLite/sessoes locais por Firebase Auth, Firestore e Cloud Tasks, preservando o runtime SQLite como padrao local/VPS.
 - Push notifications estao fora do escopo atual.
 
@@ -15,6 +16,7 @@ App de coaching pessoal com IA para rotina alimentar, plano diario, historico de
 
 - Setup/login com sessao Bearer persistida em SQLite.
 - Chat com historico, arquivamento e reabertura de conversas.
+- Anexos de imagem/camera e audio no composer, com upload privado antes de chamar a IA.
 - Conversas de plano com metadata por data, versao e origem da acao.
 - Fluxos `Gerar plano`, `Editar plano` e `Novo plano` com versionamento por dia.
 - Plano diario interativo com checkbox por item e sincronizacao automatica de calorias e treinos.
@@ -51,7 +53,7 @@ App de coaching pessoal com IA para rotina alimentar, plano diario, historico de
 
 - Node.js 24+.
 - `ai-gateway` acessivel em `AI_GATEWAY_URL`.
-- Firebase Auth, Firestore, Functions, Hosting e Cloud Tasks quando `FIREBASE_BACKEND=true`.
+- Firebase Auth, Firestore, Functions, Hosting, Cloud Storage e Cloud Tasks quando `FIREBASE_BACKEND=true`.
 - Caddy/reverse proxy apenas quando quiser servir em `/pt/` e `/api/pt/` fora do modo local.
 
 ## Setup rapido
@@ -73,6 +75,15 @@ CORS_ALLOWED_ORIGINS=http://localhost:5174
 ```
 
 Para staging Firebase, use `FIREBASE_BACKEND=true`, configure `VITE_FIREBASE_*`, `BOOTSTRAP_SECRET`, `AI_GATEWAY_URL` para a URL direta do gateway Firebase e `CLOUD_TASKS_*` para a fila/Function dedicada `claudeWorker`. Use `AI_MODEL=gemini-3-flash` ou omita `AI_MODEL` para herdar o default do app no gateway serverless. O worker deve chamar o gateway com OIDC (`AI_GATEWAY_AUTH_AUDIENCE`) e o bootstrap semeia documentos vazios por padrao (`FIREBASE_BOOTSTRAP_SEED=empty`). Mantenha `CLOUD_TASKS_INFLIGHT_STALE_MS` maior que o timeout real do gateway; o codigo aplica no minimo `1.5 * GATEWAY_TIMEOUT_MS`.
+
+### Anexos multimodais
+
+- Configure `PT_MEDIA_BUCKET` ou `FIREBASE_STORAGE_BUCKET` para o bucket privado usado pelo Firebase Admin SDK.
+- O cliente envia imagem/camera e audio WAV para `/api/media/uploads`; o backend valida MIME/assinatura, tamanho, duracao WAV verificavel, grava em Cloud Storage e retorna apenas `mediaRef`.
+- O historico/pendingResponses guarda metadados e `mediaRef`, nunca base64. O worker resolve `mediaRef` para `gs://...` apenas no payload enviado ao `ai-gateway`.
+- `storage.rules` nega leitura/escrita direta do cliente. Remocao no composer chama `DELETE /api/media/uploads/:mediaRef`; a limpeza imediata tambem roda apos sucesso/falha terminal. Aplique `storage.lifecycle.json` no bucket e publique o TTL de `mediaUploads.expiresAt` em `firestore.indexes.json` para remover objetos/metadados antigos como defesa contra orfaos.
+- Custos: imagem consome storage/transient e tokens multimodais; audio tambem cresce com duracao. Use `PT_MEDIA_*` para limitar bytes/duracao, quantidade/bytes pendentes por usuario, `TOKEN_BUDGET_*_COST_MICROS` para teto opcional por custo estimado e `COST_*_MICROS_PER_TOKEN` para calibrar a estimativa conforme o modelo/preco vigente.
+- Lifecycle recomendado: `gcloud storage buckets update gs://$PT_MEDIA_BUCKET --lifecycle-file=storage.lifecycle.json`.
 
 ## Scripts
 

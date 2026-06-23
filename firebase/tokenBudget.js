@@ -4,6 +4,8 @@ import { getFirestore, FieldValue } from "./admin.js";
 
 const DEFAULT_DAILY = 500_000;     // ~$0,05 em gemini-3-flash (input/output blend)
 const DEFAULT_MONTHLY = 5_000_000; // ~$0,50/mes/usuario teto
+const DEFAULT_DAILY_COST_MICROS = 0; // 0 = sem cap por custo estimado
+const DEFAULT_MONTHLY_COST_MICROS = 0;
 const DEFAULT_ENABLED = true;
 
 // TTL em segundos
@@ -23,6 +25,14 @@ function getDailyCap() {
 
 function getMonthlyCap() {
   return getEnvNumber("TOKEN_BUDGET_MONTHLY", DEFAULT_MONTHLY);
+}
+
+function getDailyCostCapMicros() {
+  return getEnvNumber("TOKEN_BUDGET_DAILY_COST_MICROS", DEFAULT_DAILY_COST_MICROS);
+}
+
+function getMonthlyCostCapMicros() {
+  return getEnvNumber("TOKEN_BUDGET_MONTHLY_COST_MICROS", DEFAULT_MONTHLY_COST_MICROS);
 }
 
 function isEnabled() {
@@ -67,6 +77,10 @@ function tokenBudgetRef(uid, periodKey) {
   return getFirestore().collection("users").doc(uid).collection("tokenBudgets").doc(periodKey);
 }
 
+function readNumber(snap, key) {
+  return snap.exists ? Number(snap.data()?.[key] || 0) : 0;
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /**
@@ -74,28 +88,40 @@ function tokenBudgetRef(uid, periodKey) {
  * Retorna {allowed, dailyUsed, monthlyUsed, dailyCap, monthlyCap, resetAt}.
  * Quando desabilitado por env, sempre allowed=true com counters zerados.
  */
-export async function checkBudget(uid) {
+export async function checkBudget(uid, pendingUsage = {}) {
   if (!isEnabled()) {
     return { allowed: true, enabled: false, dailyUsed: 0, monthlyUsed: 0, dailyCap: getDailyCap(), monthlyCap: getMonthlyCap(), resetAt: null };
   }
   const dailyCap = getDailyCap();
   const monthlyCap = getMonthlyCap();
+  const dailyCostCapMicros = getDailyCostCapMicros();
+  const monthlyCostCapMicros = getMonthlyCostCapMicros();
+  const pendingTokens = Number(pendingUsage.totalTokens || pendingUsage.mediaInputTokens || pendingUsage.estimatedTokens || 0);
+  const pendingCostMicros = Number(pendingUsage.estimatedCostMicros || pendingUsage.mediaInputCostMicros || 0);
 
   const [dailySnap, monthlySnap] = await Promise.all([
     tokenBudgetRef(uid, dailyKey()).get(),
     tokenBudgetRef(uid, monthlyKey()).get(),
   ]);
 
-  const dailyUsed = dailySnap.exists ? Number(dailySnap.data()?.totalTokens || 0) : 0;
-  const monthlyUsed = monthlySnap.exists ? Number(monthlySnap.data()?.totalTokens || 0) : 0;
+  const dailyUsed = readNumber(dailySnap, "totalTokens");
+  const monthlyUsed = readNumber(monthlySnap, "totalTokens");
+  const dailyCostUsedMicros = readNumber(dailySnap, "estimatedCostMicros");
+  const monthlyCostUsedMicros = readNumber(monthlySnap, "estimatedCostMicros");
 
-  if (dailyUsed >= dailyCap) {
+  if (dailyUsed + pendingTokens >= dailyCap) {
     return { allowed: false, enabled: true, reason: "daily", dailyUsed, monthlyUsed, dailyCap, monthlyCap, resetAt: nextDailyResetIso() };
   }
-  if (monthlyUsed >= monthlyCap) {
+  if (monthlyUsed + pendingTokens >= monthlyCap) {
     return { allowed: false, enabled: true, reason: "monthly", dailyUsed, monthlyUsed, dailyCap, monthlyCap, resetAt: nextMonthlyResetIso() };
   }
-  return { allowed: true, enabled: true, dailyUsed, monthlyUsed, dailyCap, monthlyCap, resetAt: null };
+  if (dailyCostCapMicros > 0 && dailyCostUsedMicros + pendingCostMicros >= dailyCostCapMicros) {
+    return { allowed: false, enabled: true, reason: "daily_cost", dailyUsed, monthlyUsed, dailyCap, monthlyCap, dailyCostUsedMicros, monthlyCostUsedMicros, dailyCostCapMicros, monthlyCostCapMicros, resetAt: nextDailyResetIso() };
+  }
+  if (monthlyCostCapMicros > 0 && monthlyCostUsedMicros + pendingCostMicros >= monthlyCostCapMicros) {
+    return { allowed: false, enabled: true, reason: "monthly_cost", dailyUsed, monthlyUsed, dailyCap, monthlyCap, dailyCostUsedMicros, monthlyCostUsedMicros, dailyCostCapMicros, monthlyCostCapMicros, resetAt: nextMonthlyResetIso() };
+  }
+  return { allowed: true, enabled: true, dailyUsed, monthlyUsed, dailyCap, monthlyCap, dailyCostUsedMicros, monthlyCostUsedMicros, dailyCostCapMicros, monthlyCostCapMicros, resetAt: null };
 }
 
 /**
@@ -104,11 +130,20 @@ export async function checkBudget(uid) {
  * caller deve garantir que so chama uma vez por response (worker chama uma
  * unica vez no caminho ok).
  */
-export async function debit(uid, { inputTokens = 0, outputTokens = 0, cachedTokens = 0 } = {}) {
+export async function debit(uid, {
+  inputTokens = 0,
+  outputTokens = 0,
+  cachedTokens = 0,
+  imageTokens = 0,
+  audioTokens = 0,
+  imageCount = 0,
+  audioSeconds = 0,
+  estimatedCostMicros = 0,
+} = {}) {
   if (!isEnabled()) return { ok: true, skipped: "disabled" };
 
   const totalTokens = Number(inputTokens || 0) + Number(outputTokens || 0);
-  if (totalTokens <= 0 && (cachedTokens || 0) <= 0) {
+  if (totalTokens <= 0 && (cachedTokens || 0) <= 0 && (estimatedCostMicros || 0) <= 0) {
     return { ok: true, skipped: "zero" };
   }
 
@@ -127,6 +162,11 @@ export async function debit(uid, { inputTokens = 0, outputTokens = 0, cachedToke
     inputTokens: FieldValue.increment(Number(inputTokens || 0)),
     outputTokens: FieldValue.increment(Number(outputTokens || 0)),
     cachedTokens: FieldValue.increment(Number(cachedTokens || 0)),
+    imageTokens: FieldValue.increment(Number(imageTokens || 0)),
+    audioTokens: FieldValue.increment(Number(audioTokens || 0)),
+    imageCount: FieldValue.increment(Number(imageCount || 0)),
+    audioSeconds: FieldValue.increment(Number(audioSeconds || 0)),
+    estimatedCostMicros: FieldValue.increment(Number(estimatedCostMicros || 0)),
     totalTokens: FieldValue.increment(totalTokens),
     requestCount: FieldValue.increment(1),
     updatedAt: now.toISOString(),
@@ -153,20 +193,32 @@ export async function getStatus(uid) {
     enabled: isEnabled(),
     daily: {
       cap: getDailyCap(),
-      used: dailySnap.exists ? Number(dailySnap.data()?.totalTokens || 0) : 0,
-      input: dailySnap.exists ? Number(dailySnap.data()?.inputTokens || 0) : 0,
-      output: dailySnap.exists ? Number(dailySnap.data()?.outputTokens || 0) : 0,
-      cached: dailySnap.exists ? Number(dailySnap.data()?.cachedTokens || 0) : 0,
-      requestCount: dailySnap.exists ? Number(dailySnap.data()?.requestCount || 0) : 0,
+      costCapMicros: getDailyCostCapMicros(),
+      used: readNumber(dailySnap, "totalTokens"),
+      input: readNumber(dailySnap, "inputTokens"),
+      output: readNumber(dailySnap, "outputTokens"),
+      cached: readNumber(dailySnap, "cachedTokens"),
+      imageTokens: readNumber(dailySnap, "imageTokens"),
+      audioTokens: readNumber(dailySnap, "audioTokens"),
+      imageCount: readNumber(dailySnap, "imageCount"),
+      audioSeconds: readNumber(dailySnap, "audioSeconds"),
+      estimatedCostMicros: readNumber(dailySnap, "estimatedCostMicros"),
+      requestCount: readNumber(dailySnap, "requestCount"),
       resetAt: nextDailyResetIso(),
     },
     monthly: {
       cap: getMonthlyCap(),
-      used: monthlySnap.exists ? Number(monthlySnap.data()?.totalTokens || 0) : 0,
-      input: monthlySnap.exists ? Number(monthlySnap.data()?.inputTokens || 0) : 0,
-      output: monthlySnap.exists ? Number(monthlySnap.data()?.outputTokens || 0) : 0,
-      cached: monthlySnap.exists ? Number(monthlySnap.data()?.cachedTokens || 0) : 0,
-      requestCount: monthlySnap.exists ? Number(monthlySnap.data()?.requestCount || 0) : 0,
+      costCapMicros: getMonthlyCostCapMicros(),
+      used: readNumber(monthlySnap, "totalTokens"),
+      input: readNumber(monthlySnap, "inputTokens"),
+      output: readNumber(monthlySnap, "outputTokens"),
+      cached: readNumber(monthlySnap, "cachedTokens"),
+      imageTokens: readNumber(monthlySnap, "imageTokens"),
+      audioTokens: readNumber(monthlySnap, "audioTokens"),
+      imageCount: readNumber(monthlySnap, "imageCount"),
+      audioSeconds: readNumber(monthlySnap, "audioSeconds"),
+      estimatedCostMicros: readNumber(monthlySnap, "estimatedCostMicros"),
+      requestCount: readNumber(monthlySnap, "requestCount"),
       resetAt: nextMonthlyResetIso(),
     },
   };

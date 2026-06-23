@@ -64,5 +64,8 @@ export default defineConfig(({ mode }) => {
       outDir: "dist",
       sourcemap: true,
     },
+    test: {
+      hookTimeout: 30000,
+    },
   };
 });
