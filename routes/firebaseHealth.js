@@ -8,6 +8,18 @@ const HEALTH_TIMEOUT_MS = Number.parseInt(process.env.HEALTH_TIMEOUT_MS || "3000
 const gatewayAuth = new GoogleAuth();
 const gatewayIdTokenClients = new Map();
 
+function shouldExposeInternalHealthDetails() {
+  return process.env.HEALTH_INCLUDE_INTERNAL_URLS === "true" || process.env.NODE_ENV !== "production";
+}
+
+function internalHealthDetails() {
+  if (!shouldExposeInternalHealthDetails()) return {};
+  return {
+    gatewayUrl: AI_GATEWAY_URL,
+    gatewayHealthUrl: AI_GATEWAY_HEALTH_URL,
+  };
+}
+
 function normalizeHeaders(headers) {
   if (typeof headers?.entries === "function") {
     return Object.fromEntries(headers.entries());
@@ -85,8 +97,7 @@ export default function firebaseHealthRoutes() {
         status: "error",
         checks,
         reason: `gateway: ${error.message}`,
-        gatewayUrl: AI_GATEWAY_URL,
-        gatewayHealthUrl: AI_GATEWAY_HEALTH_URL,
+        ...internalHealthDetails(),
         timestamp: new Date().toISOString(),
       });
     }
@@ -94,11 +105,10 @@ export default function firebaseHealthRoutes() {
     return res.json({
       status: "ok",
       checks,
-      gatewayUrl: AI_GATEWAY_URL,
-      gatewayHealthUrl: AI_GATEWAY_HEALTH_URL,
       gatewayStatus,
       storage: "firestore",
       timestamp: new Date().toISOString(),
+      ...internalHealthDetails(),
     });
   });
 

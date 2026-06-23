@@ -4,6 +4,13 @@ import { db } from "../db/index.js";
 const AI_GATEWAY_URL = process.env.AI_GATEWAY_URL || "http://localhost:3500";
 const HEALTH_TIMEOUT_MS = Number.parseInt(process.env.HEALTH_TIMEOUT_MS || "3000", 10);
 
+function internalHealthDetails() {
+  if (process.env.HEALTH_INCLUDE_INTERNAL_URLS !== "true" && process.env.NODE_ENV === "production") {
+    return {};
+  }
+  return { gatewayUrl: AI_GATEWAY_URL };
+}
+
 async function checkGateway() {
   const response = await fetch(`${AI_GATEWAY_URL}/api/health`, {
     method: "GET",
@@ -47,9 +54,9 @@ export default function healthRoutes() {
     res.json({
       status: "ok",
       checks,
-      gatewayUrl: AI_GATEWAY_URL,
       storage: "sqlite",
       timestamp: new Date().toISOString(),
+      ...internalHealthDetails(),
     });
   });
 
