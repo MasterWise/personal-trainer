@@ -9,7 +9,6 @@ const region = process.env.FUNCTIONS_REGION
   || "southamerica-east1";
 const defaultApiServiceAccount = "pt-api-runtime@mw-personal-trainer.iam.gserviceaccount.com";
 const defaultWorkerServiceAccount = "pt-worker@mw-personal-trainer.iam.gserviceaccount.com";
-const defaultCloudTasksInvokerServiceAccount = "pt-tasks-invoker@mw-personal-trainer.iam.gserviceaccount.com";
 const apiServiceAccount = process.env.FUNCTIONS_API_SERVICE_ACCOUNT
   || process.env.FIREBASE_FUNCTIONS_API_SERVICE_ACCOUNT
   || process.env.FUNCTIONS_SERVICE_ACCOUNT
@@ -22,8 +21,6 @@ const workerServiceAccount = process.env.FUNCTIONS_CLAUDE_WORKER_SERVICE_ACCOUNT
   || process.env.FUNCTIONS_SERVICE_ACCOUNT
   || process.env.FIREBASE_FUNCTIONS_SERVICE_ACCOUNT
   || defaultWorkerServiceAccount;
-const cloudTasksInvokerServiceAccount = process.env.CLOUD_TASKS_SERVICE_ACCOUNT
-  || defaultCloudTasksInvokerServiceAccount;
 const bootstrapSecret = defineSecret("BOOTSTRAP_SECRET");
 let appPromise;
 
@@ -51,5 +48,4 @@ export const claudeWorker = onRequest({
   memory: "1GiB",
   concurrency: 5,
   serviceAccount: workerServiceAccount,
-  invoker: [`serviceAccount:${cloudTasksInvokerServiceAccount}`],
 }, handleClaudeWorker);
