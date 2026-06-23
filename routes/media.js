@@ -1,9 +1,10 @@
 import { Router } from "express";
+import { resolveStorageBucketName } from "../firebase/admin.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { deleteMediaForUser, uploadMediaForUser, getMediaUploadLimits } from "../firebase/media.js";
 
 function hasMediaStorageConfig() {
-  return Boolean(process.env.PT_MEDIA_BUCKET || process.env.FIREBASE_STORAGE_BUCKET || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID);
+  return Boolean(resolveStorageBucketName());
 }
 
 export default function mediaRoutes() {
