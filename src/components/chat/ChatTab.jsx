@@ -20,12 +20,26 @@ import PermCard from "./PermCard.jsx";
 import { post } from "../../services/api.js";
 import { useDocs } from "../../contexts/DocsContext.jsx";
 
+const MULTIMODAL_MESSAGE_PLACEHOLDER = "Anexo enviado.";
+const MULTIMODAL_TURN_INSTRUCTION = "Use o conteudo multimodal deste turno como parte da mensagem do usuario e responda diretamente ao que foi comunicado, sem mencionar formato, anexo ou processamento.";
+
 function formatAttachmentLabel(attachment) {
   if (attachment.kind === "audio") {
     const seconds = Math.max(1, Math.round((attachment.durationMs || 0) / 1000));
     return `Audio (${seconds}s)`;
   }
   return attachment.kind === "image" ? "Imagem" : "Anexo";
+}
+
+function getAuthoredText(message, attachments) {
+  const text = typeof message.content === "string" ? message.content : String(message.content || "");
+  if (!attachments.length) return text;
+  return text.trim() === MULTIMODAL_MESSAGE_PLACEHOLDER ? "" : text;
+}
+
+function buildMultimodalTurnText(text) {
+  if (!text.trim()) return MULTIMODAL_TURN_INSTRUCTION;
+  return `${text}\n\n[${MULTIMODAL_TURN_INSTRUCTION}]`;
 }
 
 function toStoredAttachment(attachment) {
@@ -42,20 +56,20 @@ function toStoredAttachment(attachment) {
   };
 }
 
-function toApiMessage(message, includeMediaRefs = false) {
+export function toApiMessage(message, includeMediaRefs = false) {
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-  const text = typeof message.content === "string" ? message.content : String(message.content || "");
+  const text = getAuthoredText(message, attachments);
   if (!attachments.length) return { role: message.role, content: text };
 
   if (!includeMediaRefs || message.role !== "user") {
     const labels = attachments.map(formatAttachmentLabel).join(", ");
     return {
       role: message.role,
-      content: `${text || "Anexo enviado."}\n[Anexos anteriores: ${labels}]`,
+      content: `${text || "Mensagem multimodal enviada."}\n[Turno anterior com conteudo multimodal: ${labels}]`,
     };
   }
 
-  const blocks = [{ type: "text", text: text || "Analise o anexo enviado." }];
+  const blocks = [{ type: "text", text: buildMultimodalTurnText(text) }];
   for (const attachment of attachments) {
     if (!attachment.mediaRef) continue;
     blocks.push({
@@ -381,7 +395,7 @@ export default function ChatTab({
     const text = input.trim();
     const attachmentsToSend = readyAttachments.map(toStoredAttachment);
     if ((!text && attachmentsToSend.length === 0) || loading || hasInFlight || hasUploadingAttachment || !docsReady || readOnly) return;
-    const userMsg = { role: "user", content: text || "Anexo enviado.", attachments: attachmentsToSend };
+    const userMsg = { role: "user", content: text || MULTIMODAL_MESSAGE_PLACEHOLDER, attachments: attachmentsToSend };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
     setAttachmentsOpen(false);
