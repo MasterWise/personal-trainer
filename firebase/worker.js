@@ -20,6 +20,17 @@ function normalizeHeaders(headers) {
   return headers || {};
 }
 
+export function addServerlessAuthorizationHeader(headers = {}) {
+  const result = { ...headers };
+  const authorization = result.Authorization || result.authorization;
+  if (authorization && !result["X-Serverless-Authorization"]) {
+    // Cloud Run checks this header for IAM and leaves Authorization available
+    // for the gateway's app-level OIDC validation.
+    result["X-Serverless-Authorization"] = authorization;
+  }
+  return result;
+}
+
 function parsePositiveMs(value, fallback) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -78,7 +89,7 @@ async function getGatewayRequestHeaders() {
   }
   const client = await gatewayIdTokenClients.get(audience);
   const authHeaders = normalizeHeaders(await client.getRequestHeaders());
-  return { ...baseHeaders, ...authHeaders };
+  return addServerlessAuthorizationHeader({ ...baseHeaders, ...authHeaders });
 }
 
 async function postGatewayChat(gatewayPayload, timeoutMs) {
