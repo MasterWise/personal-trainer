@@ -151,5 +151,13 @@ jobs:
       - name: Smoke test pos-deploy
         run: |
           set -euo pipefail
-          curl -fsS https://api-ewylrqiwjq-rj.a.run.app/api/health | tee /tmp/health.json
-          jq -e '.status=="ok" and .checks.firestore==true and .checks.gateway==true' /tmp/health.json
+          for attempt in {1..12}; do
+            if curl -fsS https://api-ewylrqiwjq-rj.a.run.app/api/health | tee /tmp/health.json \
+              && jq -e '.status=="ok" and .checks.firestore==true and .checks.gateway==true' /tmp/health.json; then
+              exit 0
+            fi
+            echo "::warning::Smoke ainda nao verde (tentativa ${attempt}/12); aguardando propagacao das Functions..."
+            sleep 5
+          done
+          cat /tmp/health.json || true
+          exit 1

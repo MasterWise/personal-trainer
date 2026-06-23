@@ -40,13 +40,8 @@ function nowIso() {
 function mediaCollection(uid) {
   return getFirestore().collection("users").doc(uid).collection("mediaUploads");
 }
-async function cleanupExpiredMediaForUser(uid) {
-  const snap = await mediaCollection(uid)
-    .where("expiresAt", "<=", new Date())
-    .limit(20)
-    .get();
-
-  await Promise.all(snap.docs.map(async (docSnap) => {
+async function cleanupExpiredMediaDocs(docSnaps, reason = "expired_before_upload") {
+  await Promise.all(docSnaps.map(async (docSnap) => {
     const media = docSnap.data();
     try {
       if (media?.objectName && media?.bucket) {
@@ -55,13 +50,20 @@ async function cleanupExpiredMediaForUser(uid) {
       await docSnap.ref.set({
         status: "expired",
         deletedAt: nowIso(),
-        deleteReason: "expired_before_upload",
+        deleteReason: reason,
         gsUri: FieldValue.delete(),
       }, { merge: true });
     } catch (error) {
       console.warn("[Media] cleanup expirado falhou:", docSnap.id, error?.message || error);
     }
   }));
+}
+
+function isExpiredMedia(media, now = new Date()) {
+  const value = media?.expiresAt;
+  if (!value) return false;
+  const expiresAt = typeof value.toDate === "function" ? value.toDate() : new Date(value);
+  return Number.isFinite(expiresAt.getTime()) && expiresAt <= now;
 }
 
 async function enforceMediaQuotaForUser(uid, incomingBytes, limits) {
@@ -71,11 +73,18 @@ async function enforceMediaQuotaForUser(uid, incomingBytes, limits) {
     .get();
   let count = 0;
   let bytes = 0;
+  const expiredDocs = [];
+  const now = new Date();
   for (const docSnap of snap.docs) {
     const media = docSnap.data();
+    if (isExpiredMedia(media, now)) {
+      expiredDocs.push(docSnap);
+      continue;
+    }
     count += 1;
     bytes += Number(media?.sizeBytes || 0);
   }
+  await cleanupExpiredMediaDocs(expiredDocs, "expired_before_quota");
   if (count >= limits.maxAvailableCount) {
     throw Object.assign(new Error("Limite de anexos pendentes atingido"), { statusCode: 429, code: "MEDIA_QUOTA_COUNT_EXCEEDED" });
   }

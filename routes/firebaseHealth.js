@@ -3,6 +3,7 @@ import { GoogleAuth } from "google-auth-library";
 import { getFirestore } from "../firebase/admin.js";
 
 const AI_GATEWAY_URL = process.env.AI_GATEWAY_URL || "http://localhost:3500";
+const AI_GATEWAY_HEALTH_URL = process.env.AI_GATEWAY_HEALTH_URL || `${AI_GATEWAY_URL}/api/health`;
 const HEALTH_TIMEOUT_MS = Number.parseInt(process.env.HEALTH_TIMEOUT_MS || "3000", 10);
 const gatewayAuth = new GoogleAuth();
 const gatewayIdTokenClients = new Map();
@@ -32,12 +33,22 @@ async function getGatewayHealthHeaders() {
 }
 
 async function checkGateway() {
-  const response = await fetch(`${AI_GATEWAY_URL}/api/health`, {
+  const response = await fetch(AI_GATEWAY_HEALTH_URL, {
     method: "GET",
     headers: await getGatewayHealthHeaders(),
     signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
   });
-  return response.ok;
+  if (!response.ok) {
+    console.warn("[Firebase Health] gateway health falhou", {
+      status: response.status,
+      statusText: response.statusText,
+      url: AI_GATEWAY_HEALTH_URL,
+    });
+  }
+  return {
+    ok: response.ok,
+    status: response.status,
+  };
 }
 
 export default function firebaseHealthRoutes() {
@@ -60,13 +71,22 @@ export default function firebaseHealthRoutes() {
       });
     }
 
+    let gatewayStatus = null;
     try {
-      checks.gateway = await checkGateway();
+      const gateway = await checkGateway();
+      checks.gateway = gateway.ok;
+      gatewayStatus = gateway.status;
     } catch (error) {
+      console.warn("[Firebase Health] gateway health exception", {
+        message: error.message,
+        url: AI_GATEWAY_HEALTH_URL,
+      });
       return res.status(503).json({
         status: "error",
         checks,
         reason: `gateway: ${error.message}`,
+        gatewayUrl: AI_GATEWAY_URL,
+        gatewayHealthUrl: AI_GATEWAY_HEALTH_URL,
         timestamp: new Date().toISOString(),
       });
     }
@@ -75,6 +95,8 @@ export default function firebaseHealthRoutes() {
       status: "ok",
       checks,
       gatewayUrl: AI_GATEWAY_URL,
+      gatewayHealthUrl: AI_GATEWAY_HEALTH_URL,
+      gatewayStatus,
       storage: "firestore",
       timestamp: new Date().toISOString(),
     });
