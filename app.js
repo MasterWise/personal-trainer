@@ -18,7 +18,7 @@ const DEV_ALLOWED_ORIGINS = [
 ];
 
 const NGROK_ORIGIN_REGEX = /^https:\/\/[a-z0-9-]+\.ngrok-free\.app$/i;
-const CSP_REPORT_ONLY = process.env.CSP_REPORT_ONLY !== "false";
+const CSP_REPORT_ONLY = process.env.CSP_REPORT_ONLY === "true";
 
 function getAllowedOrigins() {
   return (process.env.CORS_ALLOWED_ORIGINS || "")
@@ -28,6 +28,10 @@ function getAllowedOrigins() {
 }
 
 function isAllowedOrigin(origin, allowedOrigins, isProd) {
+  if (isProd && NGROK_ORIGIN_REGEX.test(origin)) {
+    return false;
+  }
+
   if (allowedOrigins.includes(origin)) {
     return true;
   }
@@ -36,7 +40,7 @@ function isAllowedOrigin(origin, allowedOrigins, isProd) {
     return true;
   }
 
-  return NGROK_ORIGIN_REGEX.test(origin);
+  return !isProd && NGROK_ORIGIN_REGEX.test(origin);
 }
 
 export async function createApp(options = {}) {
@@ -60,12 +64,13 @@ export async function createApp(options = {}) {
       contentSecurityPolicy: isProd ? {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'", "https://www.gstatic.com"],
+          scriptSrc: ["'self'", "https://www.gstatic.com", "https://apis.google.com"],
           styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
           imgSrc: ["'self'", "data:", "blob:"],
           mediaSrc: ["'self'", "blob:"],
-          connectSrc: ["'self'", "https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com"],
+          connectSrc: ["'self'", "https://*.googleapis.com", "https://*.firebaseio.com", "https://*.firebaseapp.com", "https://*.firebasestorage.app"],
+          frameSrc: ["'self'", "https://*.firebaseapp.com", "https://*.web.app", "https://accounts.google.com"],
           manifestSrc: ["'self'"],
           workerSrc: ["'self'", "blob:"],
         },
