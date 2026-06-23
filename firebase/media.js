@@ -59,6 +59,18 @@ async function cleanupExpiredMediaDocs(docSnaps, reason = "expired_before_upload
   }));
 }
 
+async function cleanupExpiredMediaForUser(uid, reason = "expired_before_upload") {
+  if (!uid) return;
+  const limits = getMediaUploadLimits();
+  const snap = await mediaCollection(uid)
+    .where("status", "==", "available")
+    .limit(Math.max(limits.maxAvailableCount + 1, 1))
+    .get();
+  const now = new Date();
+  const expiredDocs = snap.docs.filter((docSnap) => isExpiredMedia(docSnap.data(), now));
+  await cleanupExpiredMediaDocs(expiredDocs, reason);
+}
+
 function isExpiredMedia(media, now = new Date()) {
   const value = media?.expiresAt;
   if (!value) return false;
