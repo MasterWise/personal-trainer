@@ -140,10 +140,13 @@ jobs:
           path: dist/
       - run: npm ci --omit=dev
       - name: Autenticar no Google Cloud (WIF)
+        id: auth
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/firebase
       - name: Deploy seletivo (functions do PT + hosting + firestore + storage)
         run: |
           if [ -z "${{ vars.FIREBASE_PROJECT_ID }}" ]; then
@@ -153,7 +156,8 @@ jobs:
           npx --yes firebase-tools@"$FIREBASE_TOOLS_VERSION" deploy \
             --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
             --project="${{ vars.FIREBASE_PROJECT_ID }}" \
-            --non-interactive
+            --non-interactive \
+            --token "${{ steps.auth.outputs.access_token }}"
       - name: Smoke test pos-deploy
         run: |
           set -euo pipefail
