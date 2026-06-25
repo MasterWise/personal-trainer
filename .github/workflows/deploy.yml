@@ -140,21 +140,23 @@ jobs:
       - run: npm ci --omit=dev
       - name: Deploy seletivo (functions do PT + hosting + firestore + storage)
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           if [ -z "${{ vars.FIREBASE_PROJECT_ID }}" ]; then
             echo "::error::FIREBASE_PROJECT_ID variable nao configurada no environment production"
             exit 1
           fi
-          if [ -z "$FIREBASE_TOKEN" ]; then
-            echo "::error::Secret FIREBASE_TOKEN nao configurado para rollback do Firebase CLI"
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "::error::Secret FIREBASE_SERVICE_ACCOUNT nao configurado para rollback do Firebase CLI"
             exit 1
           fi
+          cred_file="$RUNNER_TEMP/firebase-service-account.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$cred_file"
+          export GOOGLE_APPLICATION_CREDENTIALS="$cred_file"
           npx --yes firebase-tools@"$FIREBASE_TOOLS_VERSION" deploy \
             --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
             --project="${{ vars.FIREBASE_PROJECT_ID }}" \
-            --non-interactive \
-            --token "$FIREBASE_TOKEN"
+            --non-interactive
       - name: Smoke test pos-deploy
         run: |
           set -euo pipefail
