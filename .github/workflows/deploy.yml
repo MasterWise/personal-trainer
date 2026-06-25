@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  FIREBASE_TOOLS_VERSION: 15.21.0
+  FIREBASE_TOOLS_VERSION: 13.35.1
 
 jobs:
   # ─── Lint + test rodam em paralelo ────────────────────────────────────────
@@ -157,16 +157,18 @@ jobs:
           export GOOGLE_CLOUD_PROJECT="${{ vars.FIREBASE_PROJECT_ID }}"
           export GCLOUD_PROJECT="${{ vars.FIREBASE_PROJECT_ID }}"
           npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase --version
-          deploy_status=0
+          deploy_status=1
           for attempt in 1 2 3 4 5; do
-            if npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase deploy \
+            set +e
+            npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase deploy \
               --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
               --project="${{ vars.FIREBASE_PROJECT_ID }}" \
-              --non-interactive; then
-              deploy_status=0
+              --non-interactive
+            deploy_status=$?
+            set -e
+            if [ "$deploy_status" -eq 0 ]; then
               break
             fi
-            deploy_status=$?
             echo "::warning::Firebase deploy falhou na tentativa ${attempt}/5; aguardando antes de repetir."
             sleep $((attempt * 10))
           done
