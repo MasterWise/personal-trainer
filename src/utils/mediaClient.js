@@ -131,9 +131,16 @@ export async function startWavRecorder() {
 
   const chunks = [];
   const startedAt = performance.now();
+  let latestLevel = 0;
   processor.onaudioprocess = (event) => {
     const input = event.inputBuffer.getChannelData(0);
     chunks.push(new Float32Array(input));
+    let sum = 0;
+    for (let i = 0; i < input.length; i += 1) {
+      sum += input[i] * input[i];
+    }
+    const rms = Math.sqrt(sum / Math.max(1, input.length));
+    latestLevel = Math.min(1, rms * 8);
   };
 
   source.connect(processor);
@@ -142,6 +149,7 @@ export async function startWavRecorder() {
 
   let stopped = false;
   return {
+    getLevel: () => latestLevel,
     stop: async () => {
       if (stopped) return null;
       stopped = true;

@@ -22,6 +22,7 @@ import { useDocs } from "../../contexts/DocsContext.jsx";
 
 const MULTIMODAL_MESSAGE_PLACEHOLDER = "Anexo enviado.";
 const MULTIMODAL_TURN_INSTRUCTION = "Use o conteudo multimodal deste turno como parte da mensagem do usuario e responda diretamente ao que foi comunicado, sem mencionar formato, anexo ou processamento.";
+const RECORDING_WAVE_BARS = [0.28, 0.62, 0.4, 0.86, 0.52, 0.74, 0.34, 0.95, 0.6, 0.42, 0.82, 0.48, 0.7, 0.36, 0.9, 0.56, 0.76, 0.32];
 
 function formatAttachmentLabel(attachment) {
   if (attachment.kind === "audio") {
@@ -105,22 +106,18 @@ function CameraIcon() {
   );
 }
 
-function SendHoldIcon({ recording = false, voiceOnly = false }) {
+function SendActionIcon({ recording = false, voice = false }) {
   if (recording) {
     return (
       <span className="pt-chat__send-icon" aria-hidden="true">
         <svg className="pt-chat__send-svg pt-chat__send-svg--recording" viewBox="0 0 24 24" focusable="false">
-          <path d="M12 4a3 3 0 0 0-3 3v4a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3Z" />
-          <path d="M6.5 11a5.5 5.5 0 0 0 11 0" />
-          <path d="M12 16.5V20" />
-          <path d="M9 20h6" />
-          <circle className="pt-chat__send-recording-dot-svg" cx="18.2" cy="5.8" r="2.1" />
+          <rect x="7" y="7" width="10" height="10" rx="2.2" />
         </svg>
       </span>
     );
   }
 
-  if (voiceOnly) {
+  if (voice) {
     return (
       <span className="pt-chat__send-icon" aria-hidden="true">
         <svg className="pt-chat__send-svg pt-chat__send-svg--voice" viewBox="0 0 24 24" focusable="false">
@@ -128,7 +125,6 @@ function SendHoldIcon({ recording = false, voiceOnly = false }) {
           <path d="M6.5 11a5.5 5.5 0 0 0 11 0" />
           <path d="M12 16.5V20" />
           <path d="M9 20h6" />
-          <path className="pt-chat__send-hold-mark" d="M18.8 14.8c1.2.7 1.9 1.7 1.9 2.9 0 1.7-1.4 3.1-3.1 3.1" />
         </svg>
       </span>
     );
@@ -136,17 +132,40 @@ function SendHoldIcon({ recording = false, voiceOnly = false }) {
 
   return (
     <span className="pt-chat__send-icon" aria-hidden="true">
-      <svg className="pt-chat__send-svg pt-chat__send-svg--hybrid" viewBox="0 0 24 24" focusable="false">
+      <svg className="pt-chat__send-svg pt-chat__send-svg--send" viewBox="0 0 24 24" focusable="false">
         <path className="pt-chat__send-plane" d="M3.5 11.6 20 4l-5.4 16-3.4-6.4-7.7-2Z" />
         <path className="pt-chat__send-plane" d="M11.2 13.6 20 4" />
-        <circle className="pt-chat__send-mic-badge-bg" cx="17.2" cy="17.1" r="5" />
-        <path className="pt-chat__send-mic" d="M17.2 14.4a1.25 1.25 0 0 0-1.25 1.25v1.4a1.25 1.25 0 0 0 2.5 0v-1.4a1.25 1.25 0 0 0-1.25-1.25Z" />
-        <path className="pt-chat__send-mic" d="M14.8 17a2.4 2.4 0 0 0 4.8 0" />
-        <path className="pt-chat__send-mic" d="M17.2 19.3v1.2" />
       </svg>
     </span>
   );
 }
+
+function RecordingWave({ level = 0, seconds = 0 }) {
+  const safeLevel = Math.max(0.06, Math.min(1, Number(level) || 0));
+  return (
+    <div className="pt-chat__recording-wave" role="status" aria-live="polite" aria-label={`Gravando audio ha ${seconds} segundos`}>
+      <span className="pt-chat__recording-pill">REC {seconds}s</span>
+      <div className="pt-chat__wave-bars" aria-hidden="true">
+        {RECORDING_WAVE_BARS.map((seed, index) => {
+          const focus = 1 - Math.abs(index - (RECORDING_WAVE_BARS.length - 1) / 2) / 10;
+          const height = 7 + (seed * 14) + (safeLevel * 23 * Math.max(0.35, focus));
+          return (
+            <span
+              key={index}
+              className="pt-chat__wave-bar"
+              style={{
+                height: `${Math.round(height)}px`,
+                opacity: 0.38 + safeLevel * 0.5 + seed * 0.12,
+                animationDelay: `${index * 38}ms`,
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function ChatTab({
   docs,
   messages,
@@ -178,6 +197,7 @@ export default function ChatTab({
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
+  const [recordingLevel, setRecordingLevel] = useState(0);
   const [loading, setLoading] = useState(false);
   // Use the CLI session ID from App.jsx (unified namespace); fall back to local UUID
   const [localSessionId] = useState(() => crypto.randomUUID());
@@ -191,9 +211,6 @@ export default function ChatTab({
   const recordingRequestIdRef = useRef(0);
   const recordingIntervalRef = useRef(null);
   const recordingTimeoutRef = useRef(null);
-  const sendHoldTimerRef = useRef(null);
-  const sendPressModeRef = useRef("idle");
-  const suppressNextSendClickRef = useRef(false);
   const attachmentsRef = useRef([]);
   const isPlanConversation = conversationMeta?.type === "plan";
   const planLoadingLabel = generating && isPlanConversation
@@ -301,6 +318,7 @@ export default function ChatTab({
     clearRecordingTimers();
     setRecording(false);
     setRecordingElapsed(0);
+    setRecordingLevel(0);
     if (!recorder) return;
     const prepared = await recorder.stop();
     if (prepared) await uploadPreparedAttachment(prepared);
@@ -317,10 +335,12 @@ export default function ChatTab({
       recorderRef.current = recorder;
       setRecording(true);
       setRecordingElapsed(0);
+      setRecordingLevel(0.08);
       const startedAt = Date.now();
       recordingIntervalRef.current = setInterval(() => {
         setRecordingElapsed(Math.min(AUDIO_MAX_DURATION_MS, Date.now() - startedAt));
-      }, 250);
+        setRecordingLevel(recorder.getLevel?.() || 0);
+      }, 120);
       recordingTimeoutRef.current = setTimeout(() => {
         stopRecording().catch((error) => console.error("stopRecording:", error));
       }, AUDIO_MAX_DURATION_MS);
@@ -339,11 +359,6 @@ export default function ChatTab({
     }
   }
 
-  function clearSendHoldTimer() {
-    if (sendHoldTimerRef.current) clearTimeout(sendHoldTimerRef.current);
-    sendHoldTimerRef.current = null;
-  }
-
   function removeAttachment(localId) {
     setAttachments((prev) => {
       const target = prev.find((attachment) => attachment.localId === localId);
@@ -358,7 +373,6 @@ export default function ChatTab({
 
   useEffect(() => {
     return () => {
-      clearSendHoldTimer();
       clearRecordingTimers();
       recorderRef.current?.stop?.().catch(() => {});
       attachmentsRef.current.forEach(discardComposerAttachment);
@@ -546,73 +560,36 @@ export default function ChatTab({
     } catch { return true; }
   })();
 
-  const canSend = (input.trim() || readyAttachments.length > 0) && !(loading || generating || hasInFlight || hasUploadingAttachment) && docsReady && !readOnly;
-  const canRecord = !(loading || generating || hasInFlight || hasUploadingAttachment) && docsReady && !readOnly;
-  const canUseAttachments = !readOnly && docsReady && !generating && !hasInFlight;
+  const hasTextInput = input.trim().length > 0;
+  const hasReadyAttachments = readyAttachments.length > 0;
+  const canSend = (hasTextInput || hasReadyAttachments) && !(loading || generating || hasInFlight || hasUploadingAttachment || recording) && docsReady && !readOnly;
+  const canRecord = !hasTextInput && !hasReadyAttachments && !(loading || generating || hasInFlight || hasUploadingAttachment) && docsReady && !readOnly;
+  const canUseAttachments = !readOnly && docsReady && !generating && !hasInFlight && !recording;
   const sendButtonEnabled = canSend || canRecord || recording;
   const recordingSeconds = Math.max(0, Math.ceil(recordingElapsed / 1000));
   const sendButtonTitle = recording
-    ? "Solte para parar a gravação"
+    ? "Parar gravação"
     : canSend
-      ? "Enviar mensagem ou segurar para gravar áudio"
-      : "Segure para gravar áudio";
+      ? "Enviar mensagem"
+      : "Gravar áudio";
   const sendButtonLabel = recording
-    ? `Gravando áudio há ${recordingSeconds} segundos`
+    ? `Parar gravação de áudio, ${recordingSeconds} segundos`
     : canSend
-      ? "Enviar mensagem ou segurar para gravar áudio"
-      : "Segure para gravar áudio";
-
-  function handleSendPressStart(event) {
-    if (!sendButtonEnabled || event.button > 0) return;
-    if (event.pointerId != null) event.currentTarget.setPointerCapture?.(event.pointerId);
-    clearSendHoldTimer();
-    sendPressModeRef.current = "pending";
-    const requestId = recordingRequestIdRef.current + 1;
-    sendHoldTimerRef.current = setTimeout(() => {
-      sendHoldTimerRef.current = null;
-      if (!canRecord) {
-        sendPressModeRef.current = "idle";
-        return;
-      }
-      sendPressModeRef.current = "recording";
-      suppressNextSendClickRef.current = true;
-      startRecording(requestId).catch((error) => console.error("startRecording:", error));
-    }, 350);
-  }
-
-  function handleSendPressEnd(event) {
-    if (event?.pointerId != null) event.currentTarget.releasePointerCapture?.(event.pointerId);
-    const mode = sendPressModeRef.current;
-    clearSendHoldTimer();
-    sendPressModeRef.current = "idle";
-    if (mode === "recording") {
-      suppressNextSendClickRef.current = true;
-      stopRecording().catch((error) => console.error("stopRecording:", error));
-      return;
-    }
-    if (mode === "pending") {
-      suppressNextSendClickRef.current = true;
-      if (canSend) send();
-    }
-  }
-
-  function handleSendPressCancel(event) {
-    if (event?.pointerId != null) event.currentTarget.releasePointerCapture?.(event.pointerId);
-    const mode = sendPressModeRef.current;
-    clearSendHoldTimer();
-    sendPressModeRef.current = "idle";
-    if (mode === "recording") {
-      suppressNextSendClickRef.current = true;
-      stopRecording().catch((error) => console.error("stopRecording:", error));
-    }
-  }
+      ? "Enviar mensagem"
+      : "Gravar áudio";
 
   function handleSendClick(event) {
-    if (suppressNextSendClickRef.current) {
-      suppressNextSendClickRef.current = false;
+    event.preventDefault();
+    if (!sendButtonEnabled) return;
+    if (recording) {
+      stopRecording().catch((error) => console.error("stopRecording:", error));
       return;
     }
-    if (event.detail === 0 && canSend) send();
+    if (canSend) {
+      send();
+      return;
+    }
+    if (canRecord) startRecording().catch((error) => console.error("startRecording:", error));
   }
 
   // Auto-resize textarea up to 3 visible lines, then scroll
@@ -778,38 +755,34 @@ export default function ChatTab({
                 </div>
               )}
             </div>
-            <textarea ref={taRef} value={input}
-              onChange={e => { setInput(e.target.value); autoResizeTextarea(e.target); }}
-              onKeyDown={e => {
-                // Shift+Enter envia (atalho desktop). Enter puro mantém quebra de linha
-                // (importante no mobile, onde Enter no teclado virtual significa "nova linha").
-                if (e.key === "Enter" && e.shiftKey && !e.nativeEvent?.isComposing) {
-                  e.preventDefault();
-                  send();
-                }
-              }}
-              placeholder={docsReady ? (inputPlaceholder || "Escreva aqui...") : "Carregando..."}
-              disabled={!docsReady || readOnly || generating || hasInFlight || recording} rows={1}
-              className="pt-chat__textarea" />
+            <div className={`pt-chat__text-field ${recording ? "pt-chat__text-field--recording" : ""}`}>
+              <textarea ref={taRef} value={input}
+                onChange={e => { setInput(e.target.value); autoResizeTextarea(e.target); }}
+                onKeyDown={e => {
+                  // Shift+Enter envia (atalho desktop). Enter puro mantém quebra de linha
+                  // (importante no mobile, onde Enter no teclado virtual significa "nova linha").
+                  if (e.key === "Enter" && e.shiftKey && !e.nativeEvent?.isComposing) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder={docsReady ? (inputPlaceholder || "Escreva aqui...") : "Carregando..."}
+                disabled={!docsReady || readOnly || generating || hasInFlight || recording} rows={1}
+                aria-hidden={recording ? "true" : undefined}
+                className="pt-chat__textarea" />
+              {recording && <RecordingWave level={recordingLevel} seconds={recordingSeconds} />}
+            </div>
             <button
               type="button"
-              onPointerDown={handleSendPressStart}
-              onPointerUp={handleSendPressEnd}
-              onPointerCancel={handleSendPressCancel}
               onClick={handleSendClick}
               disabled={!sendButtonEnabled}
               title={sendButtonTitle}
               aria-label={sendButtonLabel}
               className={`pt-chat__send ${canSend ? "pt-chat__send--active" : ""} ${canRecord && !recording ? "pt-chat__send--recordable" : ""} ${!canSend && canRecord && !recording ? "pt-chat__send--voice-ready" : ""} ${recording ? "pt-chat__send--recording" : ""}`}
             >
-              <SendHoldIcon recording={recording} voiceOnly={!canSend} />
+              <SendActionIcon recording={recording} voice={!canSend} />
             </button>
           </div>
-          {recording && (
-            <div className="pt-chat__recording-status" role="status">
-              Gravando áudio... {recordingSeconds}s
-            </div>
-          )}
         </div>
       </div>
     </div>
