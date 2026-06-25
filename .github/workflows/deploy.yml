@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  FIREBASE_TOOLS_VERSION: 13.35.1
+  FIREBASE_TOOLS_VERSION: 15.22.1
 
 jobs:
   # ─── Lint + test rodam em paralelo ────────────────────────────────────────
