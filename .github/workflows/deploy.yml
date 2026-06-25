@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  FIREBASE_TOOLS_VERSION: 15.22.1
+  FIREBASE_TOOLS_VERSION: 15.21.0
 
 jobs:
   # ─── Lint + test rodam em paralelo ────────────────────────────────────────
@@ -156,7 +156,11 @@ jobs:
           gcloud auth activate-service-account --key-file="$cred_file"
           gcloud config set project "${{ vars.FIREBASE_PROJECT_ID }}"
           export GOOGLE_APPLICATION_CREDENTIALS="$cred_file"
-          npx --yes firebase-tools@"$FIREBASE_TOOLS_VERSION" deploy \
+          export CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE="$cred_file"
+          export GOOGLE_CLOUD_PROJECT="${{ vars.FIREBASE_PROJECT_ID }}"
+          export GCLOUD_PROJECT="${{ vars.FIREBASE_PROJECT_ID }}"
+          npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase --version
+          npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase deploy \
             --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
             --project="${{ vars.FIREBASE_PROJECT_ID }}" \
             --non-interactive
