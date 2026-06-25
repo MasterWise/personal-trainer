@@ -11,9 +11,15 @@ on:
   pull_request:
     branches: ["main"]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  FIREBASE_TOOLS_VERSION: 13.35.1
 
 jobs:
   # ─── Lint + test rodam em paralelo ────────────────────────────────────────
@@ -115,6 +121,9 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     environment:
       name: production
       url: https://mw-personal-trainer.web.app
@@ -130,23 +139,20 @@ jobs:
           name: dist
           path: dist/
       - run: npm ci --omit=dev
+      - name: Autenticar no Google Cloud (WIF)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
       - name: Deploy seletivo (functions do PT + hosting + firestore + storage)
-        env:
-          # Nota: firebase-tools v13 deprecou login tokens em favor de
-          # GOOGLE_APPLICATION_CREDENTIALS apontando para um Service
-          # Account JSON. Para migrar futuramente: substituir
-          # FIREBASE_TOKEN por GOOGLE_APPLICATION_CREDENTIALS_JSON
-          # (secret) decodificado em runtime.
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
-          if [ -z "$FIREBASE_TOKEN" ]; then
-            echo "::error::FIREBASE_TOKEN secret nao configurado em Settings > Secrets > Actions"
+          if [ -z "${{ vars.FIREBASE_PROJECT_ID }}" ]; then
+            echo "::error::FIREBASE_PROJECT_ID variable nao configurada no environment production"
             exit 1
           fi
-          npx firebase-tools@^13 deploy \
+          npx --yes firebase-tools@"$FIREBASE_TOOLS_VERSION" deploy \
             --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
-            --project=mw-personal-trainer \
-            --token "$FIREBASE_TOKEN" \
+            --project="${{ vars.FIREBASE_PROJECT_ID }}" \
             --non-interactive
       - name: Smoke test pos-deploy
         run: |

@@ -51,9 +51,10 @@
 - `.github/workflows/deploy.yml` — 4 jobs: `lint` + `test` em paralelo, `build` produz artefato `dist/`, `deploy` so em `main` via `environment: production` (required reviewer).
 - Smoke pos-deploy bate `/api/health` validando `firestore && gateway`.
 - Deploy seletivo `--only "hosting,firestore,functions:api,functions:claudeWorker"` para nao tocar a Function `gateway` que vive no sub-projeto `ai-gateway` (mesmo Firebase project).
+- Autenticacao de deploy: GitHub OIDC + Workload Identity Federation, sem `FIREBASE_TOKEN` no workflow. O environment `production` deve expor as variables `FIREBASE_PROJECT_ID`, `GCP_WIF_PROVIDER` e `GCP_DEPLOY_SERVICE_ACCOUNT`.
 - Setup manual obrigatorio:
-  1. `firebase login:ci` localmente -> copiar token -> Settings > Secrets > Actions > criar `FIREBASE_TOKEN`.
-  2. Settings > Environments > criar `production` com required reviewer.
+  1. Settings > Environments > criar `production` com as variables WIF acima.
+  2. Quando o plano GitHub permitir, configurar required reviewer no environment.
   3. Settings > Branches > regra de protection em `main` exigindo checks `lint`, `test`, `build` verdes + 1 reviewer.
 
 ## PWA (Sprint A - splendid-pinwheel)
