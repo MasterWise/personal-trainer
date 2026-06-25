@@ -156,13 +156,21 @@ jobs:
           export GOOGLE_APPLICATION_CREDENTIALS="$cred_file"
           export GOOGLE_CLOUD_PROJECT="${{ vars.FIREBASE_PROJECT_ID }}"
           export GCLOUD_PROJECT="${{ vars.FIREBASE_PROJECT_ID }}"
-          npx --yes --package google-auth-library@9 node -e "const {GoogleAuth}=require('google-auth-library'); (async()=>{const auth=new GoogleAuth({scopes:['https://www.googleapis.com/auth/cloud-platform'], projectId:process.env.GOOGLE_CLOUD_PROJECT}); const client=await auth.getClient(); const token=await client.getAccessToken(); const creds=await auth.getCredentials(); console.log('ADC service account:', creds.client_email || 'unknown', 'token:', token && token.token ? 'ok' : 'missing');})().catch((e)=>{console.error('ADC probe failed:', e.message); process.exit(1);});"
           npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase --version
-          npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase deploy \
-            --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
-            --project="${{ vars.FIREBASE_PROJECT_ID }}" \
-            --non-interactive \
-            --debug
+          deploy_status=0
+          for attempt in 1 2 3 4 5; do
+            if npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase deploy \
+              --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
+              --project="${{ vars.FIREBASE_PROJECT_ID }}" \
+              --non-interactive; then
+              deploy_status=0
+              break
+            fi
+            deploy_status=$?
+            echo "::warning::Firebase deploy falhou na tentativa ${attempt}/5; aguardando antes de repetir."
+            sleep $((attempt * 10))
+          done
+          exit "$deploy_status"
       - name: Smoke test pos-deploy
         run: |
           set -euo pipefail
