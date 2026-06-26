@@ -1,9 +1,16 @@
 name: CI / Deploy
 
 # Disparos:
-# - push em main: lint + test + build + deploy + smoke (passa pelo environment "production"
-#   que tem required reviewer, configurado em Settings > Environments)
+# - push em main: lint + test + build + deploy + smoke
 # - push em outras branches OU PRs: so lint + test + build (sem deploy)
+#
+# Padrao de publicacao Firebase:
+# - secrets em nivel de repositorio, para funcionar sem billing/protection rules
+#   de GitHub Environments em repos privados.
+# - FIREBASE_SERVICE_ACCOUNT: JSON da service account de deploy.
+# - PT_FRONTEND_ENV: conteudo do .env.production.local (VITE_FIREBASE_*).
+# - O deploy usa GOOGLE_APPLICATION_CREDENTIALS direto; nao usa WIF/OIDC nem
+#   google-github-actions/auth porque esse caminho falhou no Firebase CLI.
 
 on:
   push:
@@ -19,7 +26,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  FIREBASE_TOOLS_VERSION: 13.35.1
+  FIREBASE_TOOLS_VERSION: 15.21.0
 
 jobs:
   # ─── Lint + test rodam em paralelo ────────────────────────────────────────
@@ -66,8 +73,7 @@ jobs:
       # false e a UI esconde o login Google mesmo com o backend em Firebase.
       #
       # Secret PT_FRONTEND_ENV deve ser repo-level (Settings > Secrets >
-      # Actions), nao environment-scoped, porque o job build roda antes do gate
-      # de approval do environment production.
+      # Actions), igual aos demais secrets de deploy.
       - name: Recriar .env.production.local a partir do secret
         env:
           ENV_CONTENT: ${{ secrets.PT_FRONTEND_ENV }}
@@ -115,7 +121,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # ─── Deploy so roda em main e exige aprovacao manual via environment ─────
+  # ─── Deploy so roda em main ───────────────────────────────────────────────
   deploy:
     name: Deploy (mw-personal-trainer)
     needs: build
@@ -123,9 +129,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    environment:
-      name: production
-      url: https://mw-personal-trainer.web.app
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -138,37 +141,38 @@ jobs:
           name: dist
           path: dist/
       - run: npm ci --omit=dev
-      - name: Validar credencial Firebase
+
+      - name: Preparar credencial Firebase
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
-            echo "::error::Secret FIREBASE_SERVICE_ACCOUNT nao configurado no environment production"
+            echo "::error::Secret FIREBASE_SERVICE_ACCOUNT nao configurado em Settings > Secrets and variables > Actions"
             exit 1
           fi
-          node -e "const c=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT); if (!c.client_email || !c.private_key) process.exit(1); console.log('Service account:', c.client_email)"
-      - uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          project_id: ${{ vars.FIREBASE_PROJECT_ID }}
-      - uses: google-github-actions/setup-gcloud@v2
+          cred_file="$RUNNER_TEMP/firebase-service-account.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$cred_file"
+          project_id="$(node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); if (!c.client_email || !c.private_key || !c.project_id) process.exit(1); console.log(c.project_id)" "$cred_file")"
+          service_account="$(node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log(c.client_email)" "$cred_file")"
+          if [ "$project_id" != "mw-personal-trainer" ]; then
+            echo "::error::Service account aponta para '$project_id', esperado 'mw-personal-trainer'"
+            exit 1
+          fi
+          echo "Service account: $service_account"
+          echo "FIREBASE_PROJECT_ID=$project_id" >> "$GITHUB_ENV"
+          echo "GOOGLE_CLOUD_PROJECT=$project_id" >> "$GITHUB_ENV"
+          echo "GCLOUD_PROJECT=$project_id" >> "$GITHUB_ENV"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$cred_file" >> "$GITHUB_ENV"
+
       - name: Deploy seletivo (functions do PT + hosting + firestore + storage)
         run: |
-          if [ -z "${{ vars.FIREBASE_PROJECT_ID }}" ]; then
-            echo "::error::FIREBASE_PROJECT_ID variable nao configurada no environment production"
-            exit 1
-          fi
-          gcloud config set project "${{ vars.FIREBASE_PROJECT_ID }}"
-          export GOOGLE_CLOUD_PROJECT="${{ vars.FIREBASE_PROJECT_ID }}"
-          export GCLOUD_PROJECT="${{ vars.FIREBASE_PROJECT_ID }}"
-          export MONOSPACE_ENV=1
           npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase --version
           deploy_status=1
           for attempt in 1 2 3 4 5; do
             set +e
             npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase deploy \
               --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
-              --project="${{ vars.FIREBASE_PROJECT_ID }}" \
+              --project="$FIREBASE_PROJECT_ID" \
               --non-interactive
             deploy_status=$?
             set -e
