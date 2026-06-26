@@ -21,6 +21,11 @@ const workerServiceAccount = process.env.FUNCTIONS_CLAUDE_WORKER_SERVICE_ACCOUNT
   || process.env.FUNCTIONS_SERVICE_ACCOUNT
   || process.env.FIREBASE_FUNCTIONS_SERVICE_ACCOUNT
   || defaultWorkerServiceAccount;
+const workerInvoker = process.env.CLAUDE_WORKER_INVOKER
+  || process.env.FUNCTIONS_CLAUDE_WORKER_INVOKER
+  || process.env.FIREBASE_FUNCTIONS_CLAUDE_WORKER_INVOKER
+  || process.env.CLOUD_TASKS_SERVICE_ACCOUNT
+  || "pt-tasks-invoker@mw-personal-trainer.iam.gserviceaccount.com";
 const bootstrapSecret = defineSecret("BOOTSTRAP_SECRET");
 let appPromise;
 
@@ -48,4 +53,5 @@ export const claudeWorker = onRequest({
   memory: "1GiB",
   concurrency: 5,
   serviceAccount: workerServiceAccount,
+  invoker: workerInvoker,
 }, handleClaudeWorker);

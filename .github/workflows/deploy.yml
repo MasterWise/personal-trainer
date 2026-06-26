@@ -9,8 +9,8 @@ name: CI / Deploy
 #   de GitHub Environments em repos privados.
 # - FIREBASE_SERVICE_ACCOUNT: JSON da service account de deploy.
 # - PT_FRONTEND_ENV: conteudo do .env.production.local (VITE_FIREBASE_*).
-# - O deploy usa google-github-actions/auth com credentials_json; nao usa
-#   WIF/OIDC nem FIREBASE_TOKEN.
+# - O deploy fornece GOOGLE_APPLICATION_CREDENTIALS direto ao Firebase CLI,
+#   com config isolado em RUNNER_TEMP; nao usa WIF/OIDC nem FIREBASE_TOKEN.
 
 on:
   push:
@@ -151,7 +151,10 @@ jobs:
             exit 1
           fi
           cred_file="$RUNNER_TEMP/firebase-service-account.json"
+          config_dir="$RUNNER_TEMP/firebase-config"
+          mkdir -p "$config_dir"
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$cred_file"
+          chmod 600 "$cred_file"
           project_id="$(node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); if (!c.client_email || !c.private_key || !c.project_id) process.exit(1); console.log(c.project_id)" "$cred_file")"
           service_account="$(node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log(c.client_email)" "$cred_file")"
           if [ "$project_id" != "mw-personal-trainer" ]; then
@@ -163,22 +166,18 @@ jobs:
           echo "GOOGLE_CLOUD_PROJECT=$project_id" >> "$GITHUB_ENV"
           echo "GCLOUD_PROJECT=$project_id" >> "$GITHUB_ENV"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$cred_file" >> "$GITHUB_ENV"
-
-      - uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          project_id: mw-personal-trainer
-
-      - uses: google-github-actions/setup-gcloud@v2
+          echo "XDG_CONFIG_HOME=$config_dir" >> "$GITHUB_ENV"
+          echo "APPDATA=$config_dir" >> "$GITHUB_ENV"
 
       - name: Deploy seletivo (functions do PT + hosting + firestore + storage)
         run: |
-          gcloud config set project "$FIREBASE_PROJECT_ID"
+          unset FIREBASE_TOKEN
           npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase --version
           deploy_status=1
           for attempt in 1 2 3 4 5; do
             set +e
             npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase deploy \
+              --config firebase.json \
               --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
               --project="$FIREBASE_PROJECT_ID" \
               --non-interactive
@@ -204,3 +203,11 @@ jobs:
           done
           cat /tmp/health.json || true
           exit 1
+
+      - name: Smoke hosting pos-deploy
+        run: |
+          set -euo pipefail
+          curl -fsS https://mw-personal-trainer.web.app/manifest.json \
+            | jq -e '.id=="pt-coach" and .short_name=="PT Coach"'
+          curl -fsS https://mw-personal-trainer.web.app/sw.js \
+            | grep -vq '<!DOCTYPE html'
