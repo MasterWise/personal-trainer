@@ -7,11 +7,13 @@ name: CI / Deploy
 # Padrao de publicacao Firebase:
 # - secrets em nivel de repositorio, para funcionar sem billing/protection rules
 #   de GitHub Environments em repos privados.
-# - FIREBASE_TOKEN: refresh token do Firebase CLI, gerado pela sessao local
-#   autorizada. Usado porque firebase-tools falha ADC/GOOGLE_APPLICATION_CREDENTIALS
-#   em GitHub-hosted runners neste contexto.
+# - PT_DEPLOY_SA_B64: chave JSON da service account de deploy
+#   (github-actions-deploy@mw-personal-trainer) em base64, decodificada no runner
+#   e exportada via GOOGLE_APPLICATION_CREDENTIALS (caminho ADC/SA). NAO usar
+#   FIREBASE_TOKEN/--token: o refresh token de login:ci foi revogado e tem
+#   prioridade sobre o GOOGLE_APPLICATION_CREDENTIALS, mascarando a chave SA.
 # - PT_FRONTEND_ENV: conteudo do .env.production.local (VITE_FIREBASE_*).
-# - Nao usa WIF/OIDC nem GitHub Environments.
+# - Nao usa WIF/OIDC nem GitHub Environments (WIF e o proximo passo planejado).
 
 on:
   push:
@@ -27,7 +29,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  FIREBASE_TOOLS_VERSION: 15.22.1
+  FIREBASE_TOOLS_VERSION: 15.22.3
 
 jobs:
   # ─── Lint + test rodam em paralelo ────────────────────────────────────────
@@ -143,22 +145,27 @@ jobs:
           path: dist/
       - run: npm ci --omit=dev
 
-      - name: Preparar autenticacao Firebase
+      # Decodifica a chave SA (base64) para arquivo de path absoluto e exporta
+      # GOOGLE_APPLICATION_CREDENTIALS. firebase-tools cai no ramo autoAuth/ADC
+      # quando NAO ha --token nem FIREBASE_TOKEN no ambiente.
+      - name: Preparar autenticacao Firebase (Service Account)
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          SA_B64: ${{ secrets.PT_DEPLOY_SA_B64 }}
         run: |
-          if [ -z "$FIREBASE_TOKEN" ]; then
-            echo "::error::Secret FIREBASE_TOKEN nao configurado em Settings > Secrets and variables > Actions"
+          if [ -z "$SA_B64" ]; then
+            echo "::error::Secret PT_DEPLOY_SA_B64 nao configurado em Settings > Secrets and variables > Actions"
             exit 1
           fi
+          printf '%s' "$SA_B64" | base64 -d > "$RUNNER_TEMP/sa.json"
+          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));if(!c.client_email||!c.private_key){console.error('::error::SA JSON invalido (sem client_email/private_key)');process.exit(1)}console.log('Service account:',c.client_email)" "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
           echo "FIREBASE_PROJECT_ID=mw-personal-trainer" >> "$GITHUB_ENV"
 
+      # IMPORTANTE: nenhum FIREBASE_TOKEN/--token aqui (vence o GAC e mascara a SA).
       - name: Deploy seletivo (functions do PT + hosting + firestore + storage)
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
-          if [ -z "$FIREBASE_TOKEN" ]; then
-            echo "::error::Secret FIREBASE_TOKEN nao configurado"
+          if [ -z "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+            echo "::error::GOOGLE_APPLICATION_CREDENTIALS ausente (step de auth SA falhou?)"
             exit 1
           fi
           npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase --version
@@ -169,7 +176,6 @@ jobs:
               --config firebase.json \
               --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
               --project="$FIREBASE_PROJECT_ID" \
-              --token "$FIREBASE_TOKEN" \
               --non-interactive
             deploy_status=$?
             set -e
