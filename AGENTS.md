@@ -52,9 +52,12 @@
 - Smoke pos-deploy bate `/api/health` validando `firestore && gateway`.
 - Deploy seletivo `--only "hosting,firestore,storage,functions:api,functions:claudeWorker"` para nao tocar a Function `gateway` que vive no sub-projeto `ai-gateway` (mesmo Firebase project).
 - `claudeWorker` deve declarar `invoker` restrito a `pt-tasks-invoker@mw-personal-trainer.iam.gserviceaccount.com` (ou override por env) para nao reabrir a Function ao publico em novo deploy.
-- Autenticacao de deploy: repo secret `FIREBASE_SERVICE_ACCOUNT` com JSON da service account de deploy. O workflow valida o `project_id` do proprio JSON, grava a credencial em `$RUNNER_TEMP`, exporta `GOOGLE_APPLICATION_CREDENTIALS` e config isolado (`XDG_CONFIG_HOME`/`APPDATA`) para o Firebase CLI, e deriva `FIREBASE_PROJECT_ID` do JSON validado. Nao usa `google-github-actions/auth`, `FIREBASE_TOKEN` nem WIF/OIDC.
+- **Autenticacao de deploy (padrao 2026-06-26):** repo secret `PT_DEPLOY_SA_B64` = chave JSON da service account `github-actions-deploy@mw-personal-trainer` em **base64**. O workflow decodifica para `$RUNNER_TEMP/sa.json`, exporta `GOOGLE_APPLICATION_CREDENTIALS` e roda `firebase deploy` (firebase-tools fixo em **15.22.3**) em GitHub-hosted, sem billing. **NAO** usar `--token`/`FIREBASE_TOKEN`: o refresh token de `login:ci` foi revogado E tem prioridade sobre o `GOOGLE_APPLICATION_CREDENTIALS`, mascarando a chave SA. WIF/OIDC keyless e o **proximo passo planejado** (substituira a chave longa); ate la, nao reintroduzir token. Causa-raiz, IAM completo e historico: `security/firebase-deploy-fix-plan-2026-06-26.md`.
+- **IAM do deployer (necessario — nao remover/recriar SA sem reaplicar):** `iam.serviceAccountUser` (actAs) sobre `mw-personal-trainer@appspot`, `pt-api-runtime@` e `pt-worker@`; `secretmanager.viewer` em `BOOTSTRAP_SECRET`; `firebasestorage.admin`; + papeis de functions/hosting/firestore. API `cloudbilling` habilitada no projeto.
+- **Storage (bucket explicito):** `firebase.json` usa `"storage": [{ "bucket": "mw-personal-trainer.firebasestorage.app", "rules": "storage.rules" }]`. O campo `resources.storageBucket` do projeto Firebase esta vazio, entao a forma `"storage": { "rules": ... }` faz o firebase-tools falhar com "Storage has not been set up". Nao reverter para a forma sem bucket.
+- Autenticacao de deploy: nao usa `google-github-actions/auth` ainda (ver nota WIF acima).
 - Setup manual obrigatorio:
-  1. Settings > Secrets and variables > Actions: criar/atualizar `PT_FRONTEND_ENV` e `FIREBASE_SERVICE_ACCOUNT` em nivel de repositorio.
+  1. Settings > Secrets and variables > Actions: criar/atualizar `PT_FRONTEND_ENV` e `PT_DEPLOY_SA_B64` (base64 da chave SA de deploy) em nivel de repositorio.
   2. Settings > Branches > regra de protection em `main` exigindo checks `lint`, `test`, `build` verdes + 1 reviewer quando o plano GitHub permitir.
 
 ## PWA (Sprint A - splendid-pinwheel)
