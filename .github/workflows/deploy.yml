@@ -26,7 +26,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  FIREBASE_TOOLS_VERSION: 15.21.0
+  FIREBASE_TOOLS_VERSION: 15.22.1
 
 jobs:
   # ─── Lint + test rodam em paralelo ────────────────────────────────────────
@@ -155,6 +155,29 @@ jobs:
           mkdir -p "$config_dir"
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$cred_file"
           chmod 600 "$cred_file"
+          node - "$cred_file" <<'NODE'
+          const crypto = require("crypto");
+          const fs = require("fs");
+          const [file] = process.argv.slice(2);
+          const credential = JSON.parse(fs.readFileSync(file, "utf8"));
+          for (const field of ["type", "project_id", "client_email", "private_key"]) {
+            if (!credential[field]) {
+              console.error(`Credencial Firebase sem campo obrigatorio: ${field}`);
+              process.exit(1);
+            }
+          }
+          if (credential.private_key.includes("\\n") && !credential.private_key.includes("\n")) {
+            credential.private_key = credential.private_key.replace(/\\n/g, "\n");
+            fs.writeFileSync(file, JSON.stringify(credential));
+          }
+          try {
+            crypto.createPrivateKey(credential.private_key);
+          } catch (error) {
+            console.error("private_key da service account esta malformada ou nao pode assinar JWT.");
+            console.error(error.message);
+            process.exit(1);
+          }
+          NODE
           project_id="$(node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); if (!c.client_email || !c.private_key || !c.project_id) process.exit(1); console.log(c.project_id)" "$cred_file")"
           service_account="$(node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log(c.client_email)" "$cred_file")"
           if [ "$project_id" != "mw-personal-trainer" ]; then
