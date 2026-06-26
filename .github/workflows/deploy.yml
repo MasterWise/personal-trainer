@@ -7,10 +7,11 @@ name: CI / Deploy
 # Padrao de publicacao Firebase:
 # - secrets em nivel de repositorio, para funcionar sem billing/protection rules
 #   de GitHub Environments em repos privados.
-# - FIREBASE_SERVICE_ACCOUNT: JSON da service account de deploy.
+# - FIREBASE_TOKEN: refresh token do Firebase CLI, gerado pela sessao local
+#   autorizada. Usado porque firebase-tools falha ADC/GOOGLE_APPLICATION_CREDENTIALS
+#   em GitHub-hosted runners neste contexto.
 # - PT_FRONTEND_ENV: conteudo do .env.production.local (VITE_FIREBASE_*).
-# - O deploy fornece GOOGLE_APPLICATION_CREDENTIALS direto ao Firebase CLI,
-#   com config isolado em RUNNER_TEMP; nao usa WIF/OIDC nem FIREBASE_TOKEN.
+# - Nao usa WIF/OIDC nem GitHub Environments.
 
 on:
   push:
@@ -142,59 +143,24 @@ jobs:
           path: dist/
       - run: npm ci --omit=dev
 
-      - name: Preparar credencial Firebase
+      - name: Preparar autenticacao Firebase
         env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
-          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
-            echo "::error::Secret FIREBASE_SERVICE_ACCOUNT nao configurado em Settings > Secrets and variables > Actions"
+          if [ -z "$FIREBASE_TOKEN" ]; then
+            echo "::error::Secret FIREBASE_TOKEN nao configurado em Settings > Secrets and variables > Actions"
             exit 1
           fi
-          cred_file="$RUNNER_TEMP/firebase-service-account.json"
-          config_dir="$RUNNER_TEMP/firebase-config"
-          mkdir -p "$config_dir"
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$cred_file"
-          chmod 600 "$cred_file"
-          node - "$cred_file" <<'NODE'
-          const crypto = require("crypto");
-          const fs = require("fs");
-          const [file] = process.argv.slice(2);
-          const credential = JSON.parse(fs.readFileSync(file, "utf8"));
-          for (const field of ["type", "project_id", "client_email", "private_key"]) {
-            if (!credential[field]) {
-              console.error(`Credencial Firebase sem campo obrigatorio: ${field}`);
-              process.exit(1);
-            }
-          }
-          if (credential.private_key.includes("\\n") && !credential.private_key.includes("\n")) {
-            credential.private_key = credential.private_key.replace(/\\n/g, "\n");
-            fs.writeFileSync(file, JSON.stringify(credential));
-          }
-          try {
-            crypto.createPrivateKey(credential.private_key);
-          } catch (error) {
-            console.error("private_key da service account esta malformada ou nao pode assinar JWT.");
-            console.error(error.message);
-            process.exit(1);
-          }
-          NODE
-          project_id="$(node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); if (!c.client_email || !c.private_key || !c.project_id) process.exit(1); console.log(c.project_id)" "$cred_file")"
-          service_account="$(node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log(c.client_email)" "$cred_file")"
-          if [ "$project_id" != "mw-personal-trainer" ]; then
-            echo "::error::Service account aponta para '$project_id', esperado 'mw-personal-trainer'"
-            exit 1
-          fi
-          echo "Service account: $service_account"
-          echo "FIREBASE_PROJECT_ID=$project_id" >> "$GITHUB_ENV"
-          echo "GOOGLE_CLOUD_PROJECT=$project_id" >> "$GITHUB_ENV"
-          echo "GCLOUD_PROJECT=$project_id" >> "$GITHUB_ENV"
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$cred_file" >> "$GITHUB_ENV"
-          echo "XDG_CONFIG_HOME=$config_dir" >> "$GITHUB_ENV"
-          echo "APPDATA=$config_dir" >> "$GITHUB_ENV"
+          echo "FIREBASE_PROJECT_ID=mw-personal-trainer" >> "$GITHUB_ENV"
 
       - name: Deploy seletivo (functions do PT + hosting + firestore + storage)
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
-          unset FIREBASE_TOKEN
+          if [ -z "$FIREBASE_TOKEN" ]; then
+            echo "::error::Secret FIREBASE_TOKEN nao configurado"
+            exit 1
+          fi
           npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase --version
           deploy_status=1
           for attempt in 1 2 3 4 5; do
@@ -203,6 +169,7 @@ jobs:
               --config firebase.json \
               --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
               --project="$FIREBASE_PROJECT_ID" \
+              --token "$FIREBASE_TOKEN" \
               --non-interactive
             deploy_status=$?
             set -e
