@@ -7,13 +7,15 @@ name: CI / Deploy
 # Padrao de publicacao Firebase:
 # - secrets em nivel de repositorio, para funcionar sem billing/protection rules
 #   de GitHub Environments em repos privados.
-# - PT_DEPLOY_SA_B64: chave JSON da service account de deploy
-#   (github-actions-deploy@mw-personal-trainer) em base64, decodificada no runner
-#   e exportada via GOOGLE_APPLICATION_CREDENTIALS (caminho ADC/SA). NAO usar
-#   FIREBASE_TOKEN/--token: o refresh token de login:ci foi revogado e tem
-#   prioridade sobre o GOOGLE_APPLICATION_CREDENTIALS, mascarando a chave SA.
+# - Autenticacao keyless via WIF/OIDC: o GitHub assina um token OIDC
+#   (id-token: write, gratis em repo privado); o GCP troca por um access token
+#   de curta duracao impersonando github-actions-deploy@mw-personal-trainer. A
+#   action google-github-actions/auth@v2 exporta GOOGLE_APPLICATION_CREDENTIALS
+#   (arquivo external_account). NAO usar FIREBASE_TOKEN/--token: revogado e com
+#   prioridade sobre o GAC. Secret PT_DEPLOY_SA_B64 mantido so para rollback.
 # - PT_FRONTEND_ENV: conteudo do .env.production.local (VITE_FIREBASE_*).
-# - Nao usa WIF/OIDC nem GitHub Environments (WIF e o proximo passo planejado).
+# - firebase-tools instalado local com override google-auth-library ^10 (o STS
+#   exchange do WIF quebra com a 9.x bundled / gaxios 6; ver deploy job).
 
 on:
   push:
@@ -132,11 +134,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write   # OBRIGATORIO p/ WIF/OIDC (gratis em repo privado). O bloco
+                        # permissions SUBSTITUI o default: manter contents: read aqui.
     steps:
       - uses: actions/checkout@v4
+      # Node 24 no deploy: o WIF obriga o firebase-tools a fazer token exchange em
+      # sts.googleapis.com; Node 22.23.x tem regressao de rede ("Premature close").
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - name: Download dist artifact
         uses: actions/download-artifact@v4
@@ -145,34 +151,50 @@ jobs:
           path: dist/
       - run: npm ci --omit=dev
 
-      # Decodifica a chave SA (base64) para arquivo de path absoluto e exporta
-      # GOOGLE_APPLICATION_CREDENTIALS. firebase-tools cai no ramo autoAuth/ADC
-      # quando NAO ha --token nem FIREBASE_TOKEN no ambiente.
-      - name: Preparar autenticacao Firebase (Service Account)
-        env:
-          SA_B64: ${{ secrets.PT_DEPLOY_SA_B64 }}
-        run: |
-          if [ -z "$SA_B64" ]; then
-            echo "::error::Secret PT_DEPLOY_SA_B64 nao configurado em Settings > Secrets and variables > Actions"
-            exit 1
-          fi
-          printf '%s' "$SA_B64" | base64 -d > "$RUNNER_TEMP/sa.json"
-          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));if(!c.client_email||!c.private_key){console.error('::error::SA JSON invalido (sem client_email/private_key)');process.exit(1)}console.log('Service account:',c.client_email)" "$RUNNER_TEMP/sa.json"
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
-          echo "FIREBASE_PROJECT_ID=mw-personal-trainer" >> "$GITHUB_ENV"
+      # Autenticacao keyless (WIF/OIDC): troca o token OIDC do GitHub por um
+      # access token de curta duracao impersonando a SA de deploy e exporta
+      # GOOGLE_APPLICATION_CREDENTIALS (arquivo external_account). firebase-tools
+      # cai no ramo autoAuth/ADC quando NAO ha --token nem FIREBASE_TOKEN.
+      - id: auth
+        name: Autenticacao Firebase (WIF/OIDC, keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: mw-personal-trainer
+          workload_identity_provider: projects/327445337746/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: github-actions-deploy@mw-personal-trainer.iam.gserviceaccount.com
+          token_format: 'access_token'        # tripwire: forca STS+impersonation aqui;
+          access_token_lifetime: '900s'        # se o IAM/binding quebrar, falha NESTE step
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Definir projeto Firebase
+        run: echo "FIREBASE_PROJECT_ID=mw-personal-trainer" >> "$GITHUB_ENV"
 
-      # IMPORTANTE: nenhum FIREBASE_TOKEN/--token aqui (vence o GAC e mascara a SA).
+      # firebase-tools LOCAL (nao npx) com override google-auth-library ^10: o
+      # requireAuth->STS do WIF quebra com a 9.x bundled (gaxios 6, "Premature
+      # close"). npx ignora "overrides", por isso install local real.
+      - name: Instalar firebase-tools (override google-auth-library ^10 p/ STS WIF)
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/fbtools" && cd "$RUNNER_TEMP/fbtools"
+          printf '%s' '{"name":"fbtools","private":true,"dependencies":{"firebase-tools":"'"$FIREBASE_TOOLS_VERSION"'"},"overrides":{"google-auth-library":"^10.9.0"}}' > package.json
+          npm install --no-audit --no-fund
+          GAL=$(node -e "console.log(require('$RUNNER_TEMP/fbtools/node_modules/google-auth-library/package.json').version)")
+          echo "google-auth-library resolvida: $GAL"
+          case "$GAL" in 10.*) : ;; *) echo "::error::Esperava google-auth-library 10.x, veio '$GAL' (override nao aplicou)"; exit 1 ;; esac
+          echo "FIREBASE_BIN=$RUNNER_TEMP/fbtools/node_modules/.bin/firebase" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/fbtools/node_modules/.bin/firebase" --version
+
+      # IMPORTANTE: nenhum FIREBASE_TOKEN/--token aqui (vence o GAC e mascara a credencial WIF).
       - name: Deploy seletivo (functions do PT + hosting + firestore + storage)
         run: |
           if [ -z "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-            echo "::error::GOOGLE_APPLICATION_CREDENTIALS ausente (step de auth SA falhou?)"
+            echo "::error::GOOGLE_APPLICATION_CREDENTIALS ausente (step de auth WIF falhou?)"
             exit 1
           fi
-          npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase --version
           deploy_status=1
           for attempt in 1 2 3 4 5; do
             set +e
-            npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase deploy \
+            "$FIREBASE_BIN" deploy \
               --config firebase.json \
               --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
               --project="$FIREBASE_PROJECT_ID" \
