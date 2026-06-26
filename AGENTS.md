@@ -51,7 +51,7 @@
 - `.github/workflows/deploy.yml` — 4 jobs: `lint` + `test` em paralelo, `build` produz artefato `dist/`, `deploy` so em `main`.
 - Smoke pos-deploy bate `/api/health` validando `firestore && gateway`.
 - Deploy seletivo `--only "hosting,firestore,functions:api,functions:claudeWorker"` para nao tocar a Function `gateway` que vive no sub-projeto `ai-gateway` (mesmo Firebase project).
-- Autenticacao de deploy: repo secret `FIREBASE_SERVICE_ACCOUNT` com JSON da service account de deploy. O workflow grava o JSON em `RUNNER_TEMP`, exporta `GOOGLE_APPLICATION_CREDENTIALS`, deriva `FIREBASE_PROJECT_ID` do proprio JSON e valida que o projeto e `mw-personal-trainer`. Nao usa `FIREBASE_TOKEN`, WIF/OIDC nem `google-github-actions/auth`, porque esse caminho falhou no Firebase CLI.
+- Autenticacao de deploy: repo secret `FIREBASE_SERVICE_ACCOUNT` com JSON da service account de deploy. O workflow valida o `project_id` do proprio JSON, autentica com `google-github-actions/auth@v2` via `credentials_json` e deriva `FIREBASE_PROJECT_ID` do JSON validado. Nao usa `FIREBASE_TOKEN` nem WIF/OIDC.
 - Setup manual obrigatorio:
   1. Settings > Secrets and variables > Actions: criar/atualizar `PT_FRONTEND_ENV` e `FIREBASE_SERVICE_ACCOUNT` em nivel de repositorio.
   2. Settings > Branches > regra de protection em `main` exigindo checks `lint`, `test`, `build` verdes + 1 reviewer quando o plano GitHub permitir.

@@ -9,8 +9,8 @@ name: CI / Deploy
 #   de GitHub Environments em repos privados.
 # - FIREBASE_SERVICE_ACCOUNT: JSON da service account de deploy.
 # - PT_FRONTEND_ENV: conteudo do .env.production.local (VITE_FIREBASE_*).
-# - O deploy usa GOOGLE_APPLICATION_CREDENTIALS direto; nao usa WIF/OIDC nem
-#   google-github-actions/auth porque esse caminho falhou no Firebase CLI.
+# - O deploy usa google-github-actions/auth com credentials_json; nao usa
+#   WIF/OIDC nem FIREBASE_TOKEN.
 
 on:
   push:
@@ -164,8 +164,16 @@ jobs:
           echo "GCLOUD_PROJECT=$project_id" >> "$GITHUB_ENV"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$cred_file" >> "$GITHUB_ENV"
 
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          project_id: mw-personal-trainer
+
+      - uses: google-github-actions/setup-gcloud@v2
+
       - name: Deploy seletivo (functions do PT + hosting + firestore + storage)
         run: |
+          gcloud config set project "$FIREBASE_PROJECT_ID"
           npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase --version
           deploy_status=1
           for attempt in 1 2 3 4 5; do
