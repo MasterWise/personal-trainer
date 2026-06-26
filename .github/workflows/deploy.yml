@@ -174,7 +174,7 @@ jobs:
             set +e
             npx --yes --package firebase-tools@"$FIREBASE_TOOLS_VERSION" firebase deploy \
               --config firebase.json \
-              --only "hosting,firestore,functions:api,functions:claudeWorker" \
+              --only "hosting,firestore,storage,functions:api,functions:claudeWorker" \
               --project="$FIREBASE_PROJECT_ID" \
               --non-interactive
             deploy_status=$?
